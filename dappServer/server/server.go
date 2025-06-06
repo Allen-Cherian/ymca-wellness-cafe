@@ -174,7 +174,7 @@ func APITransferReward(c *gin.Context) {
 		data = response
 	}
 	resultFinal := gin.H{
-		"message": "Reward Transferred succesfully",
+		"message": "Reward Transfer initated succesfully",
 		"data":    data,
 	}
 
