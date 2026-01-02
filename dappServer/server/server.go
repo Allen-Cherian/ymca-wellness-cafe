@@ -219,7 +219,7 @@ func APIAddActivity(c *gin.Context) {
 	fmt.Println("Smart contract response:", smartContractResponse)
 	response := rubix_interaction.SignatureResponse(url, smartContractResponse)
 	if response != nil {
-		fmt.Println("failed to send signature response:", err)
+		fmt.Println("failed to send signature response:", response)
 		return
 	}
 	fmt.Println("Signature response sent successfully")
