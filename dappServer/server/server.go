@@ -64,9 +64,9 @@ type AddActivityRequest struct {
 }
 
 type TransferRewardRequest struct {
-	ActivityID string `json:"activity_id"`
-	UserDID    string `json:"user_did"`
-	AdminDID   string `json:"admin_did"`
+	ActivityID []string `json:"activity_id"`
+	UserDID    string   `json:"user_did"`
+	AdminDID   string   `json:"admin_did"`
 }
 
 type Activity struct {
@@ -137,12 +137,13 @@ func APITransferReward(c *gin.Context) {
 	fmt.Println("The node port is:", nodePort)
 	url := fmt.Sprintf("http://localhost:%s", nodePort)
 	fmt.Println("The url is :", url)
-	filePath := config.GetEnvConfig().ActivityUpdatePath
-	rewardPoints, err := GetRewardPoints(filePath, req.ActivityID)
-	if err != nil {
-		fmt.Println("Failed to get reward points")
-		return
-	}
+	// filePath := config.GetEnvConfig().ActivityUpdatePath
+	// rewardPoints, err := GetRewardPoints(filePath, req.ActivityID)
+	rewardPoints := len(req.ActivityID)
+	// if err != nil {
+	// 	fmt.Println("Failed to get reward points")
+	// 	return
+	// }
 	// contractMsg := fmt.Sprintf(`{"activity_id":"%s","reward_points":%d,"user_did":%s,"admin_did":%s}`, req.ActivityID, rewardPoints, req.UserDID, req.AdminDID)
 	contractMsg := fmt.Sprintf(`{"transfer_sample_ft":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`, float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
 	fmt.Println("The contract message is:", contractMsg)
