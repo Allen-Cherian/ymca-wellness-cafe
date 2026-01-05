@@ -2,21 +2,28 @@ package main
 
 import (
 	"dapp-server/config"
+	"dapp-server/database"
 	"dapp-server/server"
+	"fmt"
+	"log"
 )
 
 const CONFIG_PATH = ".config/config.toml"
+const DB_PATH = "./transfer_status.db"
 
 func main() {
-	// Create a new registry
-	// registry := wasmbridge.NewHostFunctionRegistry()
+	// Initialize database
+	fmt.Println("Initializing database...")
+	err := database.InitDB(DB_PATH)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.CloseDB()
 
-	// // Create your custom host function
-	// registry.Register(rubix_interaction.NewWriteToJsonFile())
-	// hostFunction := registry.GetHostFunctions()
-	// fmt.Println("Host function is :", hostFunction)
+	// Load configuration
 	config.LoadConfig(CONFIG_PATH)
 	config.LoadEnvConfig()
-	server.BootupServer()
 
+	// Start server
+	server.BootupServer()
 }

@@ -15,8 +15,6 @@ type AddAdminRequest struct {
 	ExistingAdminDID string `json:"existing_admin_did"`
 }
 
-
-
 func APIAddAdmin(c *gin.Context) {
 	fmt.Println("APIAddAdmin triggered")
 	var req AddAdminRequest
@@ -52,8 +50,8 @@ func APIAddAdmin(c *gin.Context) {
 		return
 	}
 	fmt.Println("Smart contract response:", smartContractResponse)
-	response := rubix_interaction.SignatureResponse(url, smartContractResponse)
-	if response != nil {
+	_, err = rubix_interaction.SignatureResponse(url, smartContractResponse)
+	if err != nil {
 		fmt.Println("failed to send signature response:", err)
 		return
 	}

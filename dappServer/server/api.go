@@ -57,9 +57,14 @@ func APIExecuteContract(c *gin.Context) {
 	url := fmt.Sprintf("http://localhost:%s", port)
 	fmt.Println("The url is :", url)
 	// Call signature-response API
-	if err := rubix.SignatureResponse(url, result.ContractResult); err != nil {
+	_, err = rubix.SignatureResponse(url, result.ContractResult)
+	if err != nil {
+		fmt.Println("Failed to send signature response:", err)
 		return
 	}
+	// if err := rubix.SignatureResponse(url, result.ContractResult); err != nil {
+	// 	return
+	// }
 
 	resultFinal := gin.H{
 		"message": "DApp executed successfully",

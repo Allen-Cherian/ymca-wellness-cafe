@@ -35,7 +35,7 @@ func Deploy(wasmPath string, libPath string, deployerDid string, statePath strin
 	}
 
 	// Call signature-response API
-	err2 := SignatureResponse(url, requestID)
+	_, err2 := SignatureResponse(url, requestID)
 	if err2 != nil {
 		return nil, fmt.Errorf("failed to process signature response: %w", err)
 	}
@@ -208,7 +208,7 @@ func deploySmartContract(baseURL, contractHash, deployerDid string) (string, err
 	return apiResp.Result.Id, nil
 }
 
-func SignatureResponse(baseURL, requestID string) error {
+func SignatureResponse(baseURL, requestID string) (*SmartContractAPIResponseV1, error) {
 	// Create request body
 	requestBody := struct {
 		Id       string `json:"id"`
@@ -223,47 +223,46 @@ func SignatureResponse(baseURL, requestID string) error {
 	// Marshal request body
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	// Create request
+	// Create request URL
 	requestURL, err := url.JoinPath(baseURL, "/api/signature-response")
 	if err != nil {
-		return fmt.Errorf("signature response: unable to form request URL")
+		return nil, fmt.Errorf("signature response: unable to form request URL")
 	}
 
 	req, err := http.NewRequest("POST", requestURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("signature request: failed to send request: %w", err)
+		return nil, fmt.Errorf("signature request: failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("signature request: failed to read response: %w", err)
+		return nil, fmt.Errorf("signature request: failed to read response: %w", err)
 	}
 
 	// Parse response
 	var apiResp SmartContractAPIResponseV1
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return fmt.Errorf("signature request: failed to parse response: %w", err)
+		return nil, fmt.Errorf("signature request: failed to parse response: %w", err)
 	}
 
 	// Check response status
 	if !apiResp.Status {
-		return fmt.Errorf("%s", apiResp.Message)
+		return &apiResp, fmt.Errorf(apiResp.Message)
 	}
 
-	return nil
+	return &apiResp, nil
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"dapp-server/config"
+	"dapp-server/database"
 	rubix_interaction "dapp-server/rubix-interaction"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -107,6 +109,7 @@ func BootupServer() {
 	router.POST("/api/activity/add", APIAddActivity)
 	router.POST("/api/callback/trigger", APICallBackTrigger)
 	router.POST("/api/rewards/transfer", APITransferReward)
+	router.GET("/api/rewards/status/:transactionID", APIGetTransferStatus)
 	router.POST("/api/admin/add", APIAddAdmin)
 	router.POST("/api/callback/add-admin", APIAddAdminCallBackTrigger)
 
@@ -131,59 +134,172 @@ func APITransferReward(c *gin.Context) {
 	}
 	nodePort, exists := config.GetPortByDid(cfg, req.AdminDID)
 	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Node port not found for admin DID"})
 		fmt.Println("failed to get node port: not found")
 		return
 	}
 	fmt.Println("The node port is:", nodePort)
 	url := fmt.Sprintf("http://localhost:%s", nodePort)
 	fmt.Println("The url is :", url)
-	// filePath := config.GetEnvConfig().ActivityUpdatePath
-	// rewardPoints, err := GetRewardPoints(filePath, req.ActivityID)
+
 	rewardPoints := len(req.ActivityID)
-	// if err != nil {
-	// 	fmt.Println("Failed to get reward points")
-	// 	return
-	// }
-	// contractMsg := fmt.Sprintf(`{"activity_id":"%s","reward_points":%d,"user_did":%s,"admin_did":%s}`, req.ActivityID, rewardPoints, req.UserDID, req.AdminDID)
 	contractMsg := fmt.Sprintf(`{"transfer_sample_ft":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`, float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
 	fmt.Println("The contract message is:", contractMsg)
-	transferContractHash := config.GetEnvConfig().TransferContract //Loading the smart contract hash from config
+
+	transferContractHash := config.GetEnvConfig().TransferContract
 	if transferContractHash == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer contract hash not configured"})
 		fmt.Println("transferContractHash is not set in the config")
 		return
 	}
-	smartContractResponse, err := rubix_interaction.ExecuteSmartContract(url, transferContractHash, req.AdminDID, contractMsg)
 
+	// Step 1: Execute smart contract
+	smartContractResponse, err := rubix_interaction.ExecuteSmartContract(url, transferContractHash, req.AdminDID, contractMsg)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute smart contract", "details": err.Error()})
 		fmt.Println("failed to execute smart contract:", err)
 		return
 	}
-	fmt.Println("Smart contract response:", smartContractResponse)
-	response := rubix_interaction.SignatureResponse(url, smartContractResponse)
+	fmt.Println("Smart contract response (requestID):", smartContractResponse)
+
+	// Step 2: Sign the transaction and get transaction ID
+	response, err := rubix_interaction.SignatureResponse(url, smartContractResponse)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign transaction", "details": err.Error()})
 		fmt.Println("failed to send signature response:", err)
 		return
 	}
-	fmt.Println("The response after executing contract is :", response)
-	fmt.Println("Signature response sent successfully")
-	var data interface{}
-	if response == nil {
-		data = gin.H{
-			"rewards awarded": float64(rewardPoints),
-			"activity_id":     req.ActivityID,
+	fmt.Println("Signature response:", response)
+
+	// Extract transaction ID from response
+	transactionID := response.Result
+	if transactionID == "" {
+		transactionID = smartContractResponse // Fallback to requestID if Result is empty
+	}
+	fmt.Printf("Transaction ID: %s\n", transactionID)
+
+	// Step 3: Fetch BlockId from latest block
+	blockId, err := ExtractLatestBlockId(transferContractHash, url)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":          "Failed to get blockchain confirmation",
+			"details":        err.Error(),
+			"transaction_id": transactionID,
+		})
+		fmt.Printf("Failed to extract BlockId: %v\n", err)
+		return
+	}
+	fmt.Printf("Extracted BlockId: %s\n", blockId)
+
+	// Step 4: Store in database
+	manager := GetTransferManager()
+	_, err = manager.CreateTransfer(
+		transactionID,
+		blockId,
+		transferContractHash,
+		req.ActivityID,
+		req.UserDID,
+		req.AdminDID,
+		rewardPoints,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":          "Failed to store transfer status",
+			"details":        err.Error(),
+			"transaction_id": transactionID,
+		})
+		fmt.Printf("Failed to create transfer in DB: %v\n", err)
+		return
+	}
+	fmt.Printf("Transfer stored in database: transactionID=%s, blockId=%s\n", transactionID, blockId)
+
+	// Step 5: Register pending request and wait for callback
+	responseChan := manager.RegisterPendingRequest(transactionID, blockId)
+
+	// Wait for callback with 60 second timeout
+	select {
+	case callbackResult := <-responseChan:
+		// Success! Callback arrived in time
+		fmt.Printf("Received callback for transaction %s: success=%v\n", transactionID, callbackResult.Success)
+
+		if callbackResult.Success {
+			c.JSON(http.StatusOK, gin.H{
+				"status":         "success",
+				"message":        "Reward transfer completed successfully",
+				"transaction_id": transactionID,
+				"block_id":       blockId,
+				"data": gin.H{
+					"rewards_awarded": float64(rewardPoints),
+					"activity_ids":    req.ActivityID,
+					"user_did":        req.UserDID,
+					"admin_did":       req.AdminDID,
+				},
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status":         "failed",
+				"message":        "Reward transfer failed",
+				"transaction_id": transactionID,
+				"error":          callbackResult.Error,
+			})
 		}
-	} else {
-		data = response
-	}
-	resultFinal := gin.H{
-		"message": "Reward Transfer initated succesfully",
-		"data":    data,
-	}
 
-	// Return a response
-	c.JSON(http.StatusOK, resultFinal)
+	case <-time.After(60 * time.Second):
+		// Timeout - callback didn't arrive in time
+		fmt.Printf("Timeout waiting for callback for transaction %s\n", transactionID)
 
+		// Mark as timeout in database
+		err := manager.MarkTimeout(transactionID, blockId)
+		if err != nil {
+			fmt.Printf("Failed to mark timeout: %v\n", err)
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":         "timeout",
+			"message":        "Transfer initiated but confirmation timed out. Check status later using transaction_id.",
+			"transaction_id": transactionID,
+			"block_id":       blockId,
+			"data": gin.H{
+				"rewards_awarded": float64(rewardPoints),
+				"activity_ids":    req.ActivityID,
+				"user_did":        req.UserDID,
+			},
+			"note": "Use GET /api/rewards/status/" + transactionID + " to check transfer status",
+		})
+	}
 }
+
+// APIGetTransferStatus retrieves the status of a reward transfer by transaction ID
+func APIGetTransferStatus(c *gin.Context) {
+	transactionID := c.Param("transactionID")
+	fmt.Printf("APIGetTransferStatus called for transaction: %s\n", transactionID)
+
+	if transactionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  false,
+			"message": "Transaction ID is required",
+		})
+		return
+	}
+
+	// Retrieve status from database
+	status, err := database.GetTransferStatus(transactionID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status":  false,
+			"message": "Transfer not found",
+			"error":   err.Error(),
+		})
+		fmt.Printf("Transfer not found: %v\n", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": true,
+		"data":   status,
+	})
+}
+
 func APIAddActivity(c *gin.Context) {
 	fmt.Println("APIAddActivity triggered")
 	var req AddActivityRequest
@@ -219,9 +335,9 @@ func APIAddActivity(c *gin.Context) {
 		return
 	}
 	fmt.Println("Smart contract response:", smartContractResponse)
-	response := rubix_interaction.SignatureResponse(url, smartContractResponse)
-	if response != nil {
-		fmt.Println("failed to send signature response:", response)
+	_, err = rubix_interaction.SignatureResponse(url, smartContractResponse)
+	if err != nil {
+		fmt.Println("failed to send signature response:", err)
 		return
 	}
 	fmt.Println("Signature response sent successfully")
@@ -476,6 +592,37 @@ func ftDappHandler(c *gin.Context) {
 		if err != nil {
 			log.Printf("Error parsing JSON: %v", err)
 			return
+		}
+	}
+
+	// Extract BlockId from the latest block for callback correlation
+	var latestBlockId string
+	if len(smartContractData) > 0 {
+		latestBlockId = smartContractData[len(smartContractData)-1].BlockId
+		fmt.Printf("ftDappHandler: Extracted BlockId: %s\n", latestBlockId)
+	}
+
+	// Signal the waiting APITransferReward through the TransferManager
+	if latestBlockId != "" {
+		manager := GetTransferManager()
+		callbackResponse := CallbackResponse{
+			Success:      response.Status,
+			Message:      response.Message,
+			Data:         response.Result,
+			BlockId:      latestBlockId,
+			ContractData: relevantData,
+		}
+
+		if !response.Status {
+			callbackResponse.Error = fmt.Sprintf("Contract execution failed: %v", response.Message)
+		}
+
+		// This will update DB and notify waiting channel (if any)
+		success := manager.SendCallbackResponse(latestBlockId, callbackResponse)
+		if success {
+			fmt.Printf("ftDappHandler: Successfully notified pending request for BlockId: %s\n", latestBlockId)
+		} else {
+			fmt.Printf("ftDappHandler: No pending request found for BlockId: %s (may have timed out)\n", latestBlockId)
 		}
 	}
 

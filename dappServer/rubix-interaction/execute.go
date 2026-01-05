@@ -35,15 +35,19 @@ func Execute(
 		return nil, fmt.Errorf("failed to execute smart contract: %w", err)
 	}
 
-	// Call signature-response API
-	if err := SignatureResponse(url, requestID); err != nil {
+	contractResponse, err := SignatureResponse(url, requestID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to process signature response: %w", err)
 	}
+	// Call signature-response API
+	// if err := SignatureResponse(url, requestID); err != nil {
+	// 	return nil, fmt.Errorf("failed to process signature response: %w", err)
+	// }
 
 	return &ExecutionResult{
-		ContractResult: "contractResult",
+		ContractResult: contractResponse.Result,
 		Success:        true,
-		Message:        "Contract executed successfully",
+		Message:        contractResponse.Message,
 	}, nil
 }
 

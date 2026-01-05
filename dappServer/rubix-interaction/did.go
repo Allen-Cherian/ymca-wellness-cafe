@@ -169,10 +169,13 @@ func registerDID(baseURL string, did string) error {
 	}
 
 	requestId := registerDidResp.Result.Id
-
-	if err = SignatureResponse(baseURL, requestId); err != nil {
+	_, err = SignatureResponse(baseURL, requestId)
+	if err != nil {
 		return fmt.Errorf("failed to send signature response: %v", err)
 	}
+	// if err = SignatureResponse(baseURL, requestId); err != nil {
+	// 	return fmt.Errorf("failed to send signature response: %v", err)
+	// }
 
 	return nil
 }
