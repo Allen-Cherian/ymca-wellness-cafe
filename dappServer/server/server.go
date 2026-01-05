@@ -164,6 +164,7 @@ func APITransferReward(c *gin.Context) {
 		fmt.Println("failed to send signature response:", err)
 		return
 	}
+	fmt.Println("The response after executing contract is :", response)
 	fmt.Println("Signature response sent successfully")
 	var data interface{}
 	if response == nil {
