@@ -216,7 +216,7 @@ func APITransferReward(c *gin.Context) {
 	// Step 5: Register pending request and wait for callback
 	responseChan := manager.RegisterPendingRequest(transactionID, blockId)
 
-	// Wait for callback with 60 second timeout
+	// Wait for callback with 2 minute timeout
 	select {
 	case callbackResult := <-responseChan:
 		// Success! Callback arrived in time
@@ -244,7 +244,7 @@ func APITransferReward(c *gin.Context) {
 			})
 		}
 
-	case <-time.After(60 * time.Second):
+	case <-time.After(3 * time.Minute):
 		// Timeout - callback didn't arrive in time
 		fmt.Printf("Timeout waiting for callback for transaction %s\n", transactionID)
 
@@ -497,7 +497,10 @@ func getNextSCTDataAfterBlockID(sctDataReplies []SCTDataReply, blockID string) *
 // Handler function for /callback/nft
 func ftDappHandler(c *gin.Context) {
 	var req ContractInputRequest
-	fmt.Println("Handler trggered")
+	fmt.Println("==========================================")
+	fmt.Println("🔔 ftDappHandler TRIGGERED - Callback received!")
+	fmt.Println("==========================================")
+	fmt.Printf("Timestamp: %s\n", time.Now().Format(time.RFC3339))
 	// cfg, err := config.GetConfig()
 	// if err != nil {
 	// 	fmt.Println("failed to load config: %w", err)
@@ -599,7 +602,12 @@ func ftDappHandler(c *gin.Context) {
 	var latestBlockId string
 	if len(smartContractData) > 0 {
 		latestBlockId = smartContractData[len(smartContractData)-1].BlockId
-		fmt.Printf("ftDappHandler: Extracted BlockId: %s\n", latestBlockId)
+		fmt.Println("==========================================")
+		fmt.Printf("🔑 ftDappHandler: Extracted BlockId: %s\n", latestBlockId)
+		fmt.Printf("📊 Total blocks in data: %d\n", len(smartContractData))
+		fmt.Println("==========================================")
+	} else {
+		fmt.Println("⚠️  ftDappHandler: No blocks found in smart contract data!")
 	}
 
 	// Signal the waiting APITransferReward through the TransferManager
