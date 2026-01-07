@@ -1,20 +1,16 @@
 package server
 
 import (
+	rubix_interaction "dapp-server/rubix-interaction"
 	"encoding/json"
 	"fmt"
-	rubix_interaction "dapp-server/rubix-interaction"
-	"time"
 )
 
 // ExtractLatestBlockId fetches smart contract data and extracts the latest BlockId
 // Note: GetSmartContractData already passes "latest: true", so it returns only the latest block
 func ExtractLatestBlockId(contractHash string, nodeURL string) (string, error) {
-	// Small delay to ensure block is created after SignatureResponse
-	// This is a safety measure in case block creation is asynchronous
-	time.Sleep(500 * time.Millisecond)
-
 	// Fetch smart contract data (returns latest block only)
+	// Note: Caller should ensure sufficient delay after SignatureResponse
 	smartContractData := rubix_interaction.GetSmartContractData(contractHash, nodeURL)
 	if smartContractData == nil {
 		return "", fmt.Errorf("failed to fetch smart contract data")

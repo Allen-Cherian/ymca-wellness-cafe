@@ -104,8 +104,11 @@ func (m *TransferManager) SendCallbackResponse(blockId string, response Callback
 	m.pendingMu.Lock()
 	defer m.pendingMu.Unlock()
 
+	fmt.Printf("📋 SendCallbackResponse: Looking for blockId: %s\n", blockId)
+	fmt.Printf("📋 Current pending requests count: %d\n", len(m.pendingByBlockId))
+
 	if req, exists := m.pendingByBlockId[blockId]; exists {
-		fmt.Printf("Found pending request for blockId: %s, transactionID: %s\n", blockId, req.TransactionID)
+		fmt.Printf("✅ Found pending request for blockId: %s, transactionID: %s\n", blockId, req.TransactionID)
 
 		// Update persistent status in DB
 		updates := map[string]interface{}{
@@ -139,7 +142,13 @@ func (m *TransferManager) SendCallbackResponse(blockId string, response Callback
 	}
 
 	// Even if no pending request, update status in DB by blockId
-	fmt.Printf("No pending request found for blockId: %s, updating DB anyway\n", blockId)
+	fmt.Printf("❌ No pending request found for blockId: %s\n", blockId)
+	fmt.Printf("📋 Available keys in pending requests: ")
+	for key := range m.pendingByBlockId {
+		fmt.Printf("%s, ", key)
+	}
+	fmt.Printf("\n")
+	fmt.Printf("⤵️  Falling back to DB update by blockId\n")
 	m.updateStatusByBlockId(blockId, response)
 	return false
 }
@@ -210,6 +219,22 @@ func (m *TransferManager) cleanupStaleRequests() {
 			}
 		}
 		m.pendingMu.Unlock()
+	}
+}
+
+// UpdatePendingRequestBlockId updates the blockId key for a pending request
+// This is used when we initially register with a temporary blockId, then get the actual one
+func (m *TransferManager) UpdatePendingRequestBlockId(oldBlockId string, newBlockId string) {
+	m.pendingMu.Lock()
+	defer m.pendingMu.Unlock()
+
+	if req, exists := m.pendingByBlockId[oldBlockId]; exists {
+		// Move the pending request to the new blockId key
+		m.pendingByBlockId[newBlockId] = req
+		delete(m.pendingByBlockId, oldBlockId)
+		fmt.Printf("🔄 Updated pending request blockId mapping: %s → %s\n", oldBlockId, newBlockId)
+	} else {
+		fmt.Printf("⚠️  UpdatePendingRequestBlockId: No pending request found for oldBlockId: %s\n", oldBlockId)
 	}
 }
 
