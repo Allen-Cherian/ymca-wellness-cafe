@@ -13,18 +13,22 @@ var db *sql.DB
 
 // TransferStatus represents a reward transfer record
 type TransferStatus struct {
-	RequestID    string    `json:"request_id"`
-	BlockId      string    `json:"block_id"`
-	ActivityIDs  []string  `json:"activity_ids"`
-	UserDID      string    `json:"user_did"`
-	AdminDID     string    `json:"admin_did"`
-	RewardPoints int       `json:"reward_points"`
-	Status       string    `json:"status"` // "pending", "success", "failed", "timeout"
-	Message      string    `json:"message"`
-	ContractHash string    `json:"contract_hash"`
-	ErrorDetails string    `json:"error_details"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	RequestID      string     `json:"request_id"`       // Application UUID (generated immediately)
+	BlockchainTxID string     `json:"blockchain_tx_id"` // Blockchain transaction ID (filled after execution)
+	BlockId        string     `json:"block_id"`         // Blockchain block ID
+	ActivityIDs    []string   `json:"activity_ids"`
+	UserDID        string     `json:"user_did"`
+	AdminDID       string     `json:"admin_did"`
+	RewardPoints   int        `json:"reward_points"`
+	Status         string     `json:"status"` // "queued", "processing", "pending", "success", "failed", "timeout"
+	Message        string     `json:"message"`
+	ContractHash   string     `json:"contract_hash"`
+	ErrorDetails   string     `json:"error_details"`
+	QueuedAt       time.Time  `json:"queued_at"`     // When request was received
+	StartedAt      *time.Time `json:"started_at"`    // When worker started processing
+	CompletedAt    *time.Time `json:"completed_at"`  // When processing finished
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // InitDB initializes the SQLite database
@@ -54,6 +58,7 @@ func createTables() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS transfer_status (
 		request_id TEXT PRIMARY KEY,
+		blockchain_tx_id TEXT,
 		block_id TEXT,
 		activity_ids TEXT NOT NULL,
 		user_did TEXT NOT NULL,
@@ -63,13 +68,17 @@ func createTables() error {
 		message TEXT,
 		contract_hash TEXT NOT NULL,
 		error_details TEXT,
+		queued_at DATETIME NOT NULL,
+		started_at DATETIME,
+		completed_at DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
 	);
 
+	CREATE INDEX IF NOT EXISTS idx_blockchain_tx_id ON transfer_status(blockchain_tx_id);
 	CREATE INDEX IF NOT EXISTS idx_block_id ON transfer_status(block_id);
 	CREATE INDEX IF NOT EXISTS idx_status ON transfer_status(status);
-	CREATE INDEX IF NOT EXISTS idx_created_at ON transfer_status(created_at);
+	CREATE INDEX IF NOT EXISTS idx_queued_at ON transfer_status(queued_at);
 	CREATE INDEX IF NOT EXISTS idx_admin_did ON transfer_status(admin_did);
 	`
 
@@ -87,15 +96,16 @@ func CreateTransferStatus(status *TransferStatus) error {
 
 	query := `
 		INSERT INTO transfer_status (
-			request_id, block_id, activity_ids, user_did, admin_did,
+			request_id, blockchain_tx_id, block_id, activity_ids, user_did, admin_did,
 			reward_points, status, message, contract_hash, error_details,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			queued_at, started_at, completed_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = db.Exec(
 		query,
 		status.RequestID,
+		status.BlockchainTxID,
 		status.BlockId,
 		string(activityIDsJSON),
 		status.UserDID,
@@ -105,6 +115,9 @@ func CreateTransferStatus(status *TransferStatus) error {
 		status.Message,
 		status.ContractHash,
 		status.ErrorDetails,
+		status.QueuedAt,
+		status.StartedAt,
+		status.CompletedAt,
 		status.CreatedAt,
 		status.UpdatedAt,
 	)
@@ -119,9 +132,9 @@ func CreateTransferStatus(status *TransferStatus) error {
 // GetTransferStatus retrieves a transfer status by request ID
 func GetTransferStatus(requestID string) (*TransferStatus, error) {
 	query := `
-		SELECT request_id, block_id, activity_ids, user_did, admin_did,
+		SELECT request_id, blockchain_tx_id, block_id, activity_ids, user_did, admin_did,
 		       reward_points, status, message, contract_hash, error_details,
-		       created_at, updated_at
+		       queued_at, started_at, completed_at, created_at, updated_at
 		FROM transfer_status
 		WHERE request_id = ?
 	`
@@ -131,6 +144,7 @@ func GetTransferStatus(requestID string) (*TransferStatus, error) {
 
 	err := db.QueryRow(query, requestID).Scan(
 		&status.RequestID,
+		&status.BlockchainTxID,
 		&status.BlockId,
 		&activityIDsJSON,
 		&status.UserDID,
@@ -140,6 +154,9 @@ func GetTransferStatus(requestID string) (*TransferStatus, error) {
 		&status.Message,
 		&status.ContractHash,
 		&status.ErrorDetails,
+		&status.QueuedAt,
+		&status.StartedAt,
+		&status.CompletedAt,
 		&status.CreatedAt,
 		&status.UpdatedAt,
 	)
@@ -162,9 +179,9 @@ func GetTransferStatus(requestID string) (*TransferStatus, error) {
 // GetTransferStatusByBlockId retrieves a transfer status by block ID
 func GetTransferStatusByBlockId(blockId string) (*TransferStatus, error) {
 	query := `
-		SELECT request_id, block_id, activity_ids, user_did, admin_did,
+		SELECT request_id, blockchain_tx_id, block_id, activity_ids, user_did, admin_did,
 		       reward_points, status, message, contract_hash, error_details,
-		       created_at, updated_at
+		       queued_at, started_at, completed_at, created_at, updated_at
 		FROM transfer_status
 		WHERE block_id = ?
 	`
@@ -174,6 +191,7 @@ func GetTransferStatusByBlockId(blockId string) (*TransferStatus, error) {
 
 	err := db.QueryRow(query, blockId).Scan(
 		&status.RequestID,
+		&status.BlockchainTxID,
 		&status.BlockId,
 		&activityIDsJSON,
 		&status.UserDID,
@@ -183,6 +201,9 @@ func GetTransferStatusByBlockId(blockId string) (*TransferStatus, error) {
 		&status.Message,
 		&status.ContractHash,
 		&status.ErrorDetails,
+		&status.QueuedAt,
+		&status.StartedAt,
+		&status.CompletedAt,
 		&status.CreatedAt,
 		&status.UpdatedAt,
 	)
@@ -208,6 +229,10 @@ func UpdateTransferStatus(requestID string, updates map[string]interface{}) erro
 	query := "UPDATE transfer_status SET updated_at = ?"
 	args := []interface{}{time.Now()}
 
+	if blockchainTxID, ok := updates["blockchain_tx_id"]; ok {
+		query += ", blockchain_tx_id = ?"
+		args = append(args, blockchainTxID)
+	}
 	if blockId, ok := updates["block_id"]; ok {
 		query += ", block_id = ?"
 		args = append(args, blockId)
@@ -223,6 +248,14 @@ func UpdateTransferStatus(requestID string, updates map[string]interface{}) erro
 	if errorDetails, ok := updates["error_details"]; ok {
 		query += ", error_details = ?"
 		args = append(args, errorDetails)
+	}
+	if startedAt, ok := updates["started_at"]; ok {
+		query += ", started_at = ?"
+		args = append(args, startedAt)
+	}
+	if completedAt, ok := updates["completed_at"]; ok {
+		query += ", completed_at = ?"
+		args = append(args, completedAt)
 	}
 
 	query += " WHERE request_id = ?"

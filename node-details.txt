@@ -1,0 +1,10 @@
+Admin : 20002 : node2 : bafybmicjpbgevsegrj3hbdyeilprk5mdbtdrkiec7hgmi3kdrcfhexvk6q
+user : 20002 : node2 : bafybmidihrblwdyauw7q7sw5b4dch77zjuiqqyqtwxcs2j3nnfftxjkbeq
+
+curl -X POST http://localhost:9000/api/rewards/transfer \
+    -H "Content-Type: application/json" \
+    -d '{
+      "activity_id": ["1", "5"],
+      "admin_did": "bafybmicjpbgevsegrj3hbdyeilprk5mdbtdrkiec7hgmi3kdrcfhexvk6q",
+      "user_did": "bafybmidihrblwdyauw7q7sw5b4dch77zjuiqqyqtwxcs2j3nnfftxjkbeq"
+    }'

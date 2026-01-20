@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	wasmbridge "github.com/rubixchain/rubix-wasm/go-wasm-bridge"
 )
 
@@ -110,6 +111,7 @@ func BootupServer() {
 	router.POST("/api/callback/trigger", APICallBackTrigger)
 	router.POST("/api/rewards/transfer", APITransferReward)
 	router.GET("/api/rewards/status/:transactionID", APIGetTransferStatus)
+	router.GET("/api/queue/metrics", APIGetQueueMetrics)
 	router.POST("/api/admin/add", APIAddAdmin)
 	router.POST("/api/callback/add-admin", APIAddAdminCallBackTrigger)
 
@@ -119,176 +121,119 @@ func BootupServer() {
 	router.Run(":9000")
 }
 func APITransferReward(c *gin.Context) {
-	fmt.Println("APITransferReward triggered")
+	fmt.Println("═══════════════════════════════════════════════════════════")
+	fmt.Println("🎯 APITransferReward triggered (QUEUE MODE)")
+	fmt.Println("═══════════════════════════════════════════════════════════")
+
 	var req TransferRewardRequest
 	err := json.NewDecoder(c.Request.Body).Decode(&req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		fmt.Printf("Error reading response body: %s\n", err)
+		fmt.Printf("❌ Error reading request body: %s\n", err)
 		return
 	}
-	fmt.Println("The request body is:", req)
-	cfg, err := config.GetConfig()
-	if err != nil {
-		fmt.Println("failed to load config: %w", err)
-	}
-	nodePort, exists := config.GetPortByDid(cfg, req.AdminDID)
-	if !exists {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Node port not found for admin DID"})
-		fmt.Println("failed to get node port: not found")
-		return
-	}
-	fmt.Println("The node port is:", nodePort)
-	url := fmt.Sprintf("http://localhost:%s", nodePort)
-	fmt.Println("The url is :", url)
 
-	rewardPoints := len(req.ActivityID)
-	contractMsg := fmt.Sprintf(`{"transfer_sample_ft":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`, float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
-	fmt.Println("The contract message is:", contractMsg)
+	fmt.Printf("📝 Request: user=%s, admin=%s, activities=%v\n", req.UserDID, req.AdminDID, req.ActivityID)
 
+	// ═══════════════════════════════════════════════════════════
+	// Step 1: Generate UUID immediately
+	// ═══════════════════════════════════════════════════════════
+	requestID := uuid.New().String()
+	fmt.Printf("🆔 Generated request_id: %s\n", requestID)
+
+	// ═══════════════════════════════════════════════════════════
+	// Step 2: Validate configuration
+	// ═══════════════════════════════════════════════════════════
 	transferContractHash := config.GetEnvConfig().TransferContract
 	if transferContractHash == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer contract hash not configured"})
-		fmt.Println("transferContractHash is not set in the config")
-		return
-	}
-
-	// Step 1: Execute smart contract
-	requestID, err := rubix_interaction.ExecuteSmartContract(url, transferContractHash, req.AdminDID, contractMsg)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute smart contract", "details": err.Error()})
-		fmt.Println("failed to execute smart contract:", err)
-		return
-	}
-	fmt.Println("Smart contract response (requestID):", requestID)
-
-	// Step 2: Sign the transaction (THIS CREATES THE BLOCK ON BLOCKCHAIN)
-	// NOTE: Blockchain triggers callback BEFORE returning response
-	signatureResponse, err := rubix_interaction.SignatureResponse(url, requestID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign transaction", "details": err.Error()})
-		fmt.Println("failed to send signature response:", err)
-		return
-	}
-
-	// Extract the ACTUAL transaction ID from signature response
-	// This is the real transaction ID now that the block has been created
-	transactionID := signatureResponse.Result
-	fmt.Printf("✅ Transaction committed to blockchain! Transaction ID: %s\n", transactionID)
-	fmt.Printf("📋 SignatureResponse.Message: '%s'\n", signatureResponse.Message)
-
-	// Step 3: Register pending request immediately with transactionID as temporary key
-	// (Callback has 5s delay, so we have time to update with real blockId)
-	manager := GetTransferManager()
-	responseChan := manager.RegisterPendingRequest(transactionID, transactionID) // Use transactionID as temp blockId
-	fmt.Printf("⚡ Registered pending request with temporary key (transactionID): %s\n", transactionID)
-
-	// Step 4: Fetch BlockId and create DB record in BACKGROUND
-	// This runs in parallel with the callback's 5-second delay
-	go func() {
-		startTime := time.Now()
-		fmt.Printf("🚀 [%s] Background goroutine: Started\n", startTime.Format("15:04:05.000"))
-
-		// Fetch BlockId (block is already created)
-		blockId, err := ExtractLatestBlockId(transferContractHash, url)
-		extractTime := time.Now()
-		if err != nil {
-			fmt.Printf("⚠️  [%s] Background: Failed to extract BlockId: %v\n", extractTime.Format("15:04:05.000"), err)
-			return
-		}
-		fmt.Printf("📦 [%s] Background: Extracted BlockId: %s (took %v)\n",
-			extractTime.Format("15:04:05.000"), blockId, extractTime.Sub(startTime))
-
-		// Store in database with status "pending"
-		_, err = manager.CreateTransfer(
-			transactionID,
-			blockId,
-			transferContractHash,
-			req.ActivityID,
-			req.UserDID,
-			req.AdminDID,
-			rewardPoints,
-		)
-		dbTime := time.Now()
-		if err != nil {
-			fmt.Printf("⚠️  [%s] Background: Failed to create transfer in DB: %v\n", dbTime.Format("15:04:05.000"), err)
-			return
-		}
-		fmt.Printf("✅ [%s] Background: Transfer stored in DB: transactionID=%s, blockId=%s (took %v)\n",
-			dbTime.Format("15:04:05.000"), transactionID, blockId, dbTime.Sub(extractTime))
-
-		// Update pending request mapping from transactionID to actual blockId
-		manager.UpdatePendingRequestBlockId(transactionID, blockId)
-		updateTime := time.Now()
-		fmt.Printf("🔄 [%s] Background: Updated pending request mapping: %s → %s (took %v)\n",
-			updateTime.Format("15:04:05.000"), transactionID, blockId, updateTime.Sub(dbTime))
-		fmt.Printf("✅ [%s] Background goroutine: COMPLETED (total time: %v)\n",
-			updateTime.Format("15:04:05.000"), updateTime.Sub(startTime))
-	}()
-
-	// Step 5: Wait for callback with 3 minute timeout
-	// Callback will arrive after its 5s delay, by which time the background goroutine should have completed
-	fmt.Printf("⏳ [%s] Waiting for callback (timeout: 3 minutes)...\n", time.Now().Format("15:04:05.000"))
-	select {
-	case callbackResult := <-responseChan:
-		// Success! Callback arrived in time
-		fmt.Printf("🎉 [%s] Received callback for transaction %s: success=%v\n",
-			time.Now().Format("15:04:05.000"), transactionID, callbackResult.Success)
-
-		if callbackResult.Success {
-			c.JSON(http.StatusOK, gin.H{
-				"status":         "success",
-				"message":        "Reward transfer completed successfully",
-				"transaction_id": transactionID,
-				"block_id":       callbackResult.BlockId,
-				"data": gin.H{
-					"rewards_awarded": float64(rewardPoints),
-					"activity_ids":    req.ActivityID,
-					"user_did":        req.UserDID,
-					"admin_did":       req.AdminDID,
-				},
-			})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":         "failed",
-				"message":        "Reward transfer failed",
-				"transaction_id": transactionID,
-				"error":          callbackResult.Error,
-			})
-		}
-
-	case <-time.After(3 * time.Minute):
-		// Timeout - callback didn't arrive in time
-		fmt.Printf("Timeout waiting for callback for transaction %s\n", transactionID)
-
-		// Try to get blockId from database (background goroutine may or may not have completed)
-		var cleanupKey string
-		status, err := database.GetTransferStatus(transactionID)
-		if err == nil && status.BlockId != "" {
-			cleanupKey = status.BlockId
-		} else {
-			// Background goroutine hasn't completed yet, use transactionID as key
-			cleanupKey = transactionID
-		}
-
-		// Mark as timeout in database
-		err = manager.MarkTimeout(transactionID, cleanupKey)
-		if err != nil {
-			fmt.Printf("Failed to mark timeout: %v\n", err)
-		}
-
-		c.JSON(http.StatusAccepted, gin.H{
-			"status":         "timeout",
-			"message":        "Transfer initiated but confirmation timed out. Check status later using transaction_id.",
-			"transaction_id": transactionID,
-			"data": gin.H{
-				"rewards_awarded": float64(rewardPoints),
-				"activity_ids":    req.ActivityID,
-				"user_did":        req.UserDID,
-			},
-			"note": "Use GET /api/rewards/status/" + transactionID + " to check transfer status",
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Transfer contract hash not configured",
 		})
+		fmt.Println("❌ transferContractHash is not set in the config")
+		return
 	}
+
+	// ═══════════════════════════════════════════════════════════
+	// Step 3: Create database record immediately with status "queued"
+	// ═══════════════════════════════════════════════════════════
+	rewardPoints := len(req.ActivityID)
+	now := time.Now()
+
+	err = database.CreateTransferStatus(&database.TransferStatus{
+		RequestID:      requestID,
+		BlockchainTxID: "",                                                     // Will be filled by worker
+		BlockId:        "",                                                     // Will be filled by worker
+		ActivityIDs:    req.ActivityID,
+		UserDID:        req.UserDID,
+		AdminDID:       req.AdminDID,
+		RewardPoints:   rewardPoints,
+		Status:         "queued",
+		Message:        "Transfer request queued for processing",
+		ContractHash:   transferContractHash,
+		QueuedAt:       now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create transfer record",
+			"details": err.Error(),
+		})
+		fmt.Printf("❌ Failed to create transfer record: %v\n", err)
+		return
+	}
+
+	fmt.Printf("✅ Database record created: status=queued\n")
+
+	// ═══════════════════════════════════════════════════════════
+	// Step 4: Add to queue
+	// ═══════════════════════════════════════════════════════════
+	queue := GetTransferQueue()
+	err = queue.Enqueue(requestID, req)
+
+	if err != nil {
+		// Queue is full - update database and return error
+		database.UpdateTransferStatus(requestID, map[string]interface{}{
+			"status":  "rejected",
+			"message": "System at capacity, please retry later",
+		})
+
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status":  "rejected",
+			"message": "System at capacity, please retry in a few minutes",
+			"error":   err.Error(),
+		})
+		fmt.Printf("❌ Queue is full: %v\n", err)
+		return
+	}
+
+	// ═══════════════════════════════════════════════════════════
+	// Step 5: Return immediately with request_id
+	// ═══════════════════════════════════════════════════════════
+	queueSize := queue.GetQueueSize()
+	estimatedWaitSeconds := queueSize * 8 // Rough estimate: 8 seconds per transfer
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"status":     "queued",
+		"message":    "Transfer request queued for processing",
+		"request_id": requestID,
+		"data": gin.H{
+			"rewards_to_award": rewardPoints,
+			"activity_ids":     req.ActivityID,
+			"user_did":         req.UserDID,
+			"admin_did":        req.AdminDID,
+		},
+		"queue_info": gin.H{
+			"position":           queueSize,
+			"estimated_wait_sec": estimatedWaitSeconds,
+		},
+		"check_status_url": fmt.Sprintf("/api/rewards/status/%s", requestID),
+		"note":             "Use the check_status_url to poll for transfer completion",
+	})
+
+	fmt.Printf("✅ Response sent: request_id=%s, queue_position=%d\n", requestID, queueSize)
+	fmt.Println("═══════════════════════════════════════════════════════════")
 }
 
 // APIGetTransferStatus retrieves the status of a reward transfer by transaction ID
@@ -319,6 +264,22 @@ func APIGetTransferStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": true,
 		"data":   status,
+	})
+}
+
+// APIGetQueueMetrics returns queue statistics
+func APIGetQueueMetrics(c *gin.Context) {
+	queue := GetTransferQueue()
+	queueSize := queue.GetQueueSize()
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": true,
+		"data": gin.H{
+			"queue_size":         queueSize,
+			"estimated_wait_sec": queueSize * 8,
+			"capacity":           1000,
+			"available_slots":    1000 - queueSize,
+		},
 	})
 }
 
