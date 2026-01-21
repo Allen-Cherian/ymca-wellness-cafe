@@ -568,6 +568,27 @@ func getNextSCTDataAfterBlockID(sctDataReplies []SCTDataReply, blockID string) *
 	return nil // Return nil if no matching block or no next entry
 }
 
+// extractTransactionID extracts the transaction ID from FT transfer message
+// Message format: "FT Transfer finished successfully in 11.071221792s with trnxid db7e190a5fdb1cc9109d00287cb8e2c8d1457cecf4129fbf6b49fdaf8036b2b2"
+func extractTransactionID(message string) string {
+	// Find "trnxid " in the message
+	const trnxidPrefix = "trnxid "
+	idx := strings.Index(message, trnxidPrefix)
+	if idx == -1 {
+		return "" // trnxid not found
+	}
+
+	// Extract everything after "trnxid "
+	txID := message[idx+len(trnxidPrefix):]
+
+	// Take only the transaction ID (stops at space or end of string)
+	if spaceIdx := strings.Index(txID, " "); spaceIdx != -1 {
+		txID = txID[:spaceIdx]
+	}
+
+	return strings.TrimSpace(txID)
+}
+
 // Handler function for /callback/nft
 func ftDappHandler(c *gin.Context) {
 	var req ContractInputRequest
@@ -677,6 +698,13 @@ func ftDappHandler(c *gin.Context) {
 		}
 	}
 
+	// Extract transaction ID from message
+	// Message format: "FT Transfer finished successfully in 11.071221792s with trnxid db7e190a5fdb1cc9109d00287cb8e2c8d1457cecf4129fbf6b49fdaf8036b2b2"
+	ftTransferTxID := extractTransactionID(response.Message)
+	if ftTransferTxID != "" {
+		fmt.Printf("📝 Extracted FT Transfer TxID: %s\n", ftTransferTxID)
+	}
+
 	// Extract BlockId from the latest block for callback correlation
 	var latestBlockId string
 	if len(smartContractData) > 0 {
@@ -697,11 +725,12 @@ func ftDappHandler(c *gin.Context) {
 
 		manager := GetTransferManager()
 		callbackResponse := CallbackResponse{
-			Success:      response.Status,
-			Message:      response.Message,
-			Data:         response.Result,
-			BlockId:      latestBlockId,
-			ContractData: relevantData,
+			Success:        response.Status,
+			Message:        response.Message,
+			Data:           response.Result,
+			BlockId:        latestBlockId,
+			ContractData:   relevantData,
+			FTTransferTxID: ftTransferTxID, // Store the extracted transaction ID
 		}
 
 		if !response.Status {

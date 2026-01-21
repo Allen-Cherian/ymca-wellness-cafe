@@ -98,6 +98,13 @@ type EnvConfig struct {
 	TransferContract    string
 	ActivityUpdatePath  string
 	AdminUpdatePath     string
+	// PostgreSQL connection parameters
+	DBHost     string
+	DBPort     string
+	DBUser     string
+	DBPassword string
+	DBName     string
+	DBSSLMode  string
 }
 
 var (
@@ -121,6 +128,13 @@ func LoadEnvConfig() *EnvConfig {
 			AddAdminContract:    os.Getenv("ADD_ADMIN_CONTRACT"),
 			ActivityUpdatePath:  os.Getenv("ACTIVITY_UPDATE_PATH"),
 			AdminUpdatePath:     os.Getenv("ADD_ADMIN_PATH"),
+			// PostgreSQL connection parameters
+			DBHost:     getEnvOrDefault("DB_HOST", "localhost"),
+			DBPort:     getEnvOrDefault("DB_PORT", "5432"),
+			DBUser:     getEnvOrDefault("DB_USER", "postgres"),
+			DBPassword: os.Getenv("DB_PASSWORD"),
+			DBName:     getEnvOrDefault("DB_NAME", "dapp_server"),
+			DBSSLMode:  getEnvOrDefault("DB_SSL_MODE", "disable"),
 		}
 	})
 	return envInstance
@@ -131,4 +145,26 @@ func GetEnvConfig() *EnvConfig {
 		return LoadEnvConfig()
 	}
 	return envInstance
+}
+
+// getEnvOrDefault returns the environment variable value or a default value if not set
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// GetPostgresConnectionString builds the PostgreSQL connection string
+func GetPostgresConnectionString() string {
+	cfg := GetEnvConfig()
+	return fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		cfg.DBHost,
+		cfg.DBPort,
+		cfg.DBUser,
+		cfg.DBPassword,
+		cfg.DBName,
+		cfg.DBSSLMode,
+	)
 }

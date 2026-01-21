@@ -215,21 +215,26 @@ func (q *TransferQueue) handleCallbackAsync(requestID string, blockId string, re
 		completedAt := time.Now()
 		if callbackResult.Success {
 			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
-				"status":       "success",
-				"message":      callbackResult.Message,
-				"completed_at": completedAt,
+				"status":          "success",
+				"message":         callbackResult.Message,
+				"ft_transfer_txid": callbackResult.FTTransferTxID,
+				"completed_at":    completedAt,
 			})
 			if err != nil {
 				fmt.Printf("❌ Failed to update status to success: %v\n", err)
 			} else {
 				fmt.Printf("✅ Transfer SUCCEEDED: request_id=%s\n", requestID)
+				if callbackResult.FTTransferTxID != "" {
+					fmt.Printf("📝 FT Transfer TxID: %s\n", callbackResult.FTTransferTxID)
+				}
 			}
 		} else {
 			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
-				"status":        "failed",
-				"message":       callbackResult.Message,
-				"error_details": callbackResult.Error,
-				"completed_at":  completedAt,
+				"status":           "failed",
+				"message":          callbackResult.Message,
+				"error_details":    callbackResult.Error,
+				"ft_transfer_txid": callbackResult.FTTransferTxID,
+				"completed_at":     completedAt,
 			})
 			if err != nil {
 				fmt.Printf("❌ Failed to update status to failed: %v\n", err)

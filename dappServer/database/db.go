@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
 var db *sql.DB
@@ -24,20 +24,26 @@ type TransferStatus struct {
 	Message        string     `json:"message"`
 	ContractHash   string     `json:"contract_hash"`
 	ErrorDetails   string     `json:"error_details"`
-	QueuedAt       time.Time  `json:"queued_at"`     // When request was received
-	StartedAt      *time.Time `json:"started_at"`    // When worker started processing
-	CompletedAt    *time.Time `json:"completed_at"`  // When processing finished
+	FTTransferTxID string     `json:"ft_transfer_txid"` // Transaction ID from FT transfer callback
+	QueuedAt       time.Time  `json:"queued_at"`        // When request was received
+	StartedAt      *time.Time `json:"started_at"`       // When worker started processing
+	CompletedAt    *time.Time `json:"completed_at"`     // When processing finished
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-// InitDB initializes the SQLite database
-func InitDB(dbPath string) error {
+// InitDB initializes the PostgreSQL database
+func InitDB(connStr string) error {
 	var err error
-	db, err = sql.Open("sqlite3", dbPath)
+	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Set connection pool settings for better concurrency
+	db.SetMaxOpenConns(25)                 // Maximum number of open connections
+	db.SetMaxIdleConns(5)                  // Maximum number of idle connections
+	db.SetConnMaxLifetime(5 * time.Minute) // Maximum lifetime of a connection
 
 	// Test connection
 	if err = db.Ping(); err != nil {
@@ -49,7 +55,8 @@ func InitDB(dbPath string) error {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
-	fmt.Println("Database initialized successfully")
+	fmt.Println("✅ PostgreSQL database initialized successfully")
+	fmt.Printf("📊 Connection pool: max_open=%d, max_idle=%d\n", 25, 5)
 	return nil
 }
 
@@ -57,22 +64,23 @@ func InitDB(dbPath string) error {
 func createTables() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS transfer_status (
-		request_id TEXT PRIMARY KEY,
-		blockchain_tx_id TEXT,
-		block_id TEXT,
+		request_id VARCHAR(255) PRIMARY KEY,
+		blockchain_tx_id VARCHAR(255),
+		block_id VARCHAR(255),
 		activity_ids TEXT NOT NULL,
-		user_did TEXT NOT NULL,
-		admin_did TEXT NOT NULL,
+		user_did VARCHAR(255) NOT NULL,
+		admin_did VARCHAR(255) NOT NULL,
 		reward_points INTEGER NOT NULL,
-		status TEXT NOT NULL,
+		status VARCHAR(50) NOT NULL,
 		message TEXT,
-		contract_hash TEXT NOT NULL,
+		contract_hash VARCHAR(255) NOT NULL,
 		error_details TEXT,
-		queued_at DATETIME NOT NULL,
-		started_at DATETIME,
-		completed_at DATETIME,
-		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL
+		ft_transfer_txid VARCHAR(255),
+		queued_at TIMESTAMP NOT NULL,
+		started_at TIMESTAMP,
+		completed_at TIMESTAMP,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_blockchain_tx_id ON transfer_status(blockchain_tx_id);
@@ -80,6 +88,7 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_status ON transfer_status(status);
 	CREATE INDEX IF NOT EXISTS idx_queued_at ON transfer_status(queued_at);
 	CREATE INDEX IF NOT EXISTS idx_admin_did ON transfer_status(admin_did);
+	CREATE INDEX IF NOT EXISTS idx_ft_transfer_txid ON transfer_status(ft_transfer_txid);
 	`
 
 	_, err := db.Exec(schema)
@@ -97,9 +106,9 @@ func CreateTransferStatus(status *TransferStatus) error {
 	query := `
 		INSERT INTO transfer_status (
 			request_id, blockchain_tx_id, block_id, activity_ids, user_did, admin_did,
-			reward_points, status, message, contract_hash, error_details,
+			reward_points, status, message, contract_hash, error_details, ft_transfer_txid,
 			queued_at, started_at, completed_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = db.Exec(
@@ -115,6 +124,7 @@ func CreateTransferStatus(status *TransferStatus) error {
 		status.Message,
 		status.ContractHash,
 		status.ErrorDetails,
+		status.FTTransferTxID,
 		status.QueuedAt,
 		status.StartedAt,
 		status.CompletedAt,
@@ -133,7 +143,7 @@ func CreateTransferStatus(status *TransferStatus) error {
 func GetTransferStatus(requestID string) (*TransferStatus, error) {
 	query := `
 		SELECT request_id, blockchain_tx_id, block_id, activity_ids, user_did, admin_did,
-		       reward_points, status, message, contract_hash, error_details,
+		       reward_points, status, message, contract_hash, error_details, ft_transfer_txid,
 		       queued_at, started_at, completed_at, created_at, updated_at
 		FROM transfer_status
 		WHERE request_id = ?
@@ -154,6 +164,7 @@ func GetTransferStatus(requestID string) (*TransferStatus, error) {
 		&status.Message,
 		&status.ContractHash,
 		&status.ErrorDetails,
+		&status.FTTransferTxID,
 		&status.QueuedAt,
 		&status.StartedAt,
 		&status.CompletedAt,

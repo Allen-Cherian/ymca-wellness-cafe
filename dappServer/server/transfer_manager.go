@@ -9,12 +9,13 @@ import (
 
 // CallbackResponse represents the result from ftDappHandler callback
 type CallbackResponse struct {
-	Success      bool        `json:"success"`
-	Message      string      `json:"message"`
-	Data         interface{} `json:"data"`
-	Error        string      `json:"error,omitempty"`
-	BlockId      string      `json:"block_id"`
-	ContractData string      `json:"contract_data,omitempty"`
+	Success        bool        `json:"success"`
+	Message        string      `json:"message"`
+	Data           interface{} `json:"data"`
+	Error          string      `json:"error,omitempty"`
+	BlockId        string      `json:"block_id"`
+	ContractData   string      `json:"contract_data,omitempty"`
+	FTTransferTxID string      `json:"ft_transfer_txid"` // Transaction ID extracted from FT transfer message
 }
 
 // PendingRequest holds the channel for a request waiting for callback
