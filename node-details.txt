@@ -1,10 +1,25 @@
 Admin : 20002 : node2 : bafybmicjpbgevsegrj3hbdyeilprk5mdbtdrkiec7hgmi3kdrcfhexvk6q
 user : 20002 : node2 : bafybmidihrblwdyauw7q7sw5b4dch77zjuiqqyqtwxcs2j3nnfftxjkbeq
 
+Request :
 curl -X POST http://localhost:9000/api/rewards/transfer \
     -H "Content-Type: application/json" \
     -d '{
       "activity_id": ["1", "5"],
       "admin_did": "bafybmicjpbgevsegrj3hbdyeilprk5mdbtdrkiec7hgmi3kdrcfhexvk6q",
       "user_did": "bafybmidihrblwdyauw7q7sw5b4dch77zjuiqqyqtwxcs2j3nnfftxjkbeq"
+    }'
+
+Response : 
+{"check_status_url":"/api/rewards/status/42efc6e1-d901-4596-9fb8-98d7efa59e3c","data":{"activity_ids":["1","5"],"admin_did":"bafybmicjpbgevsegrj3hbdyeilprk5mdbtdrkiec7hgmi3kdrcfhexvk6q","rewards_to_award":2,"user_did":"bafybmidihrblwdyauw7q7sw5b4dch77zjuiqqyqtwxcs2j3nnfftxjkbeq"},"message":"Transfer request queued for processing","note":"Use the check_status_url to poll for transfer completion","queue_info":{"estimated_wait_sec":8,"position":1},"request_id":"42efc6e1-d901-4596-9fb8-98d7efa59e3c","status":"queued"}
+
+curl http://localhost:9000/api/rewards/status/api/rewards/status/567fcdf5-24f6-436f-9c23-e1a1eaf4f239
+
+
+
+curl -X POST http://localhost:20002/api/register-callback-url \
+    -H "Content-Type: application/json" \
+    -d '{
+      "CallBackURL": "http://localhost:9000/api/call-back-trigger",
+      "SmartContractToken": "Qmb8zejwY1XjXPxmGKgCiWVVt9xgENtwDnJkEkf5SEzerB"
     }'

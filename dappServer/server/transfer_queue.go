@@ -121,7 +121,7 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	url := fmt.Sprintf("http://localhost:%s", nodePort)
 	rewardPoints := len(req.ActivityID)
 
-	contractMsg := fmt.Sprintf(`{"transfer_sample_ft":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`,
+	contractMsg := fmt.Sprintf(`{"transfer_ytoken":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`,
 		float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
 
 	transferContractHash := config.GetEnvConfig().TransferContract
@@ -191,20 +191,30 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	fmt.Println("📞 Step 5: Registering for callback...")
 	manager := GetTransferManager()
 	responseChan := manager.RegisterPendingRequest(requestID, blockId)
-	fmt.Println("✅ Registered for callback, waiting...")
+	fmt.Println("✅ Registered for callback")
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 6: Wait for callback (up to 3 minutes)
+	// Step 6: Start background handler for callback/timeout (non-blocking)
 	// ═══════════════════════════════════════════════════════════
-	fmt.Println("⏳ Step 6: Waiting for callback (timeout: 3 minutes)...")
+	fmt.Println("⏳ Step 6: Starting background callback handler...")
+	go q.handleCallbackAsync(requestID, blockId, responseChan)
+
+	// ✅ DONE - Worker can now pick next job immediately!
+	fmt.Println("✅ Contract executed, moving to next job")
+}
+
+// handleCallbackAsync waits for callback or timeout in background (non-blocking)
+func (q *TransferQueue) handleCallbackAsync(requestID string, blockId string, responseChan chan CallbackResponse) {
+	manager := GetTransferManager()
+
 	select {
 	case callbackResult := <-responseChan:
 		// Callback arrived!
-		fmt.Printf("🎉 Callback received: success=%v\n", callbackResult.Success)
+		fmt.Printf("🎉 Callback received: request_id=%s, success=%v\n", requestID, callbackResult.Success)
 
 		completedAt := time.Now()
 		if callbackResult.Success {
-			err = database.UpdateTransferStatus(requestID, map[string]interface{}{
+			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
 				"status":       "success",
 				"message":      callbackResult.Message,
 				"completed_at": completedAt,
@@ -215,7 +225,7 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 				fmt.Printf("✅ Transfer SUCCEEDED: request_id=%s\n", requestID)
 			}
 		} else {
-			err = database.UpdateTransferStatus(requestID, map[string]interface{}{
+			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
 				"status":        "failed",
 				"message":       callbackResult.Message,
 				"error_details": callbackResult.Error,
@@ -230,10 +240,10 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 
 	case <-time.After(3 * time.Minute):
 		// Timeout - callback didn't arrive in time
-		fmt.Printf("⏰ Timeout: Callback did not arrive within 3 minutes\n")
+		fmt.Printf("⏰ Timeout: request_id=%s - Callback did not arrive within 3 minutes\n", requestID)
 
 		completedAt := time.Now()
-		err = manager.MarkTimeout(requestID, blockId)
+		err := manager.MarkTimeout(requestID, blockId)
 		if err != nil {
 			fmt.Printf("⚠️  Failed to mark timeout: %v\n", err)
 		}

@@ -18,7 +18,8 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	wasmbridge "github.com/rubixchain/rubix-wasm/go-wasm-bridge"
+
+	"dapp-server/wasmbridge"
 )
 
 // /home/rubix/Rubix/adminNode
@@ -136,13 +137,102 @@ func APITransferReward(c *gin.Context) {
 	fmt.Printf("📝 Request: user=%s, admin=%s, activities=%v\n", req.UserDID, req.AdminDID, req.ActivityID)
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 1: Generate UUID immediately
+	// Step 1: Input Validation
+	// ═══════════════════════════════════════════════════════════
+
+	// Validate UserDID
+	if req.UserDID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "user_did is required and cannot be empty",
+		})
+		fmt.Println("❌ Validation failed: user_did is empty")
+		return
+	}
+
+	// Validate AdminDID
+	if req.AdminDID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "admin_did is required and cannot be empty",
+		})
+		fmt.Println("❌ Validation failed: admin_did is empty")
+		return
+	}
+
+	// Validate ActivityID array
+	if len(req.ActivityID) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "activity_id is required and must contain at least one activity",
+		})
+		fmt.Println("❌ Validation failed: activity_id is empty")
+		return
+	}
+
+	// Validate ActivityID elements (no empty strings)
+	for i, activityID := range req.ActivityID {
+		if activityID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Validation failed",
+				"message": fmt.Sprintf("activity_id[%d] cannot be empty", i),
+			})
+			fmt.Printf("❌ Validation failed: activity_id[%d] is empty\n", i)
+			return
+		}
+	}
+
+	// Basic DID format validation (DIDs should start with "bafyb")
+	if !strings.HasPrefix(req.UserDID, "bafyb") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "user_did has invalid format (should start with 'bafyb')",
+		})
+		fmt.Printf("❌ Validation failed: user_did has invalid format: %s\n", req.UserDID)
+		return
+	}
+
+	if !strings.HasPrefix(req.AdminDID, "bafyb") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "admin_did has invalid format (should start with 'bafyb')",
+		})
+		fmt.Printf("❌ Validation failed: admin_did has invalid format: %s\n", req.AdminDID)
+		return
+	}
+
+	// Validate AdminDID exists in config
+	cfg, err := config.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Configuration error",
+			"message": "Failed to load server configuration",
+		})
+		fmt.Printf("❌ Failed to load config: %v\n", err)
+		return
+	}
+
+	_, adminExists := config.GetPortByDid(cfg, req.AdminDID)
+	if !adminExists {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "admin_did not found in configured nodes",
+			"details": "The specified admin_did is not registered in the system",
+		})
+		fmt.Printf("❌ Validation failed: admin_did not found in config: %s\n", req.AdminDID)
+		return
+	}
+
+	fmt.Println("✅ Input validation passed")
+
+	// ═══════════════════════════════════════════════════════════
+	// Step 2: Generate UUID immediately
 	// ═══════════════════════════════════════════════════════════
 	requestID := uuid.New().String()
 	fmt.Printf("🆔 Generated request_id: %s\n", requestID)
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 2: Validate configuration
+	// Step 3: Validate configuration
 	// ═══════════════════════════════════════════════════════════
 	transferContractHash := config.GetEnvConfig().TransferContract
 	if transferContractHash == "" {
@@ -154,7 +244,7 @@ func APITransferReward(c *gin.Context) {
 	}
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 3: Create database record immediately with status "queued"
+	// Step 4: Create database record immediately with status "queued"
 	// ═══════════════════════════════════════════════════════════
 	rewardPoints := len(req.ActivityID)
 	now := time.Now()
@@ -187,7 +277,7 @@ func APITransferReward(c *gin.Context) {
 	fmt.Printf("✅ Database record created: status=queued\n")
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 4: Add to queue
+	// Step 5: Add to queue
 	// ═══════════════════════════════════════════════════════════
 	queue := GetTransferQueue()
 	err = queue.Enqueue(requestID, req)
@@ -209,7 +299,7 @@ func APITransferReward(c *gin.Context) {
 	}
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 5: Return immediately with request_id
+	// Step 6: Return immediately with request_id
 	// ═══════════════════════════════════════════════════════════
 	queueSize := queue.GetQueueSize()
 	estimatedWaitSeconds := queueSize * 8 // Rough estimate: 8 seconds per transfer
@@ -399,7 +489,8 @@ func APICallBackTrigger(c *gin.Context) {
 	registry := wasmbridge.NewHostFunctionRegistry()
 
 	// Create your custom host function
-	registry.Register(rubix_interaction.NewWriteToJsonFile())
+	// TODO: Fix WriteToJsonFile to work with local wasmbridge (utils dependency issue)
+	// registry.Register(rubix_interaction.NewWriteToJsonFile())
 	hostFunction := registry.GetHostFunctions()
 	fmt.Println("Host function is :", hostFunction)
 	wasmPath, err := getWasmContractPath(smartContractHash, req.Port)

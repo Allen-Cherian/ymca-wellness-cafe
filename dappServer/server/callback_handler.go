@@ -2,13 +2,13 @@ package server
 
 import (
 	rubix_interaction "dapp-server/rubix-interaction"
+	"dapp-server/wasmbridge"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	wasmbridge "github.com/rubixchain/rubix-wasm/go-wasm-bridge"
 )
 
 // http://localhost:9000/api/callback/add-admin
@@ -76,6 +76,7 @@ func APIAddAdminCallBackTrigger(c *gin.Context) {
 	registry := wasmbridge.NewHostFunctionRegistry()
 
 	// Create your custom host function
+	// TODO: Re-enable after fixing WriteToJsonFile if needed for activity/admin contracts
 	registry.Register(rubix_interaction.NewWriteToJsonFile())
 	hostFunction := registry.GetHostFunctions()
 	fmt.Println("Host function is :", hostFunction)

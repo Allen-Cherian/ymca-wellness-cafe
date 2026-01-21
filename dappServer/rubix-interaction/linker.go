@@ -2,14 +2,12 @@ package rubix_interaction
 
 import (
 	"dapp-server/config"
+	"dapp-server/wasmbridge"
 	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/bytecodealliance/wasmtime-go"
-	wasmContext "github.com/rubixchain/rubix-wasm/go-wasm-bridge/context"
-	"github.com/rubixchain/rubix-wasm/go-wasm-bridge/host"
-	"github.com/rubixchain/rubix-wasm/go-wasm-bridge/utils"
 )
 
 type Activity struct {
@@ -47,12 +45,12 @@ func (h *WriteToJsonFile) FuncType() *wasmtime.FuncType {
 	)
 }
 
-func (h *WriteToJsonFile) Initialize(allocFunc, deallocFunc *wasmtime.Func, memory *wasmtime.Memory, nodeAddress string, quorumType int, wasmCtx *wasmContext.WasmContext) {
+func (h *WriteToJsonFile) Initialize(allocFunc, deallocFunc *wasmtime.Func, memory *wasmtime.Memory, nodeAddress string, quorumType int) {
 	h.allocFunc = allocFunc
 	h.memory = memory
 }
 
-func (h *WriteToJsonFile) Callback() host.HostFunctionCallBack {
+func (h *WriteToJsonFile) Callback() wasmbridge.HostFunctionCallBack {
 	return h.callback
 }
 
@@ -61,19 +59,19 @@ func (h *WriteToJsonFile) callback(
 	args []wasmtime.Val,
 ) ([]wasmtime.Val, *wasmtime.Trap) {
 	// Extract input arguments
-	inputArgs, outputArgs := utils.HostFunctionParamExtraction(args, true, true)
+	inputArgs, outputArgs := wasmbridge.HostFunctionParamExtraction(args, true, true)
 
 	// Extract data and file path from WASM memory
-	dataBytes, memory, err := utils.ExtractDataFromWASM(caller, inputArgs) // Extract data
+	dataBytes, memory, err := wasmbridge.ExtractDataFromWASM(caller, inputArgs) // Extract data
 	if err != nil {
 		fmt.Println("Failed to extract data from WASM", err)
-		return utils.HandleError(err.Error())
+		return wasmbridge.HandleError(err.Error())
 	}
 
-	// filePathBytes, _, err := utils.ExtractDataFromWASM(caller, inputArgs) // Extract file path
+	// filePathBytes, _, err := wasmbridge.ExtractDataFromWASM(caller, inputArgs) // Extract file path
 	// if err != nil {
 	// 	fmt.Println("Failed to extract file path from WASM", err)
-	// 	return utils.HandleError(err.Error())
+	// 	return wasmbridge.HandleError(err.Error())
 	// }
 	h.memory = memory
 
@@ -84,7 +82,7 @@ func (h *WriteToJsonFile) callback(
 	var rawData map[string]interface{}
 	if err := json.Unmarshal(dataBytes, &rawData); err != nil {
 		fmt.Printf("Failed to parse incoming JSON: %v\n", err)
-		return utils.HandleError(err.Error())
+		return wasmbridge.HandleError(err.Error())
 	}
 
 	var jsonData interface{}
@@ -95,7 +93,7 @@ func (h *WriteToJsonFile) callback(
 		var activity Activity
 		if err := json.Unmarshal(dataBytes, &activity); err != nil {
 			fmt.Printf("Failed to unmarshal as Activity: %v\n", err)
-			return utils.HandleError(err.Error())
+			return wasmbridge.HandleError(err.Error())
 		}
 		jsonData = activity
 		filePath = config.GetEnvConfig().ActivityUpdatePath // File for Activity data
@@ -103,7 +101,7 @@ func (h *WriteToJsonFile) callback(
 		var addAdmin AddAdmin
 		if err := json.Unmarshal(dataBytes, &addAdmin); err != nil {
 			fmt.Printf("Failed to unmarshal as AddAdmin: %v\n", err)
-			return utils.HandleError(err.Error())
+			return wasmbridge.HandleError(err.Error())
 		}
 		jsonData = addAdmin
 		fmt.Println("The AddAdmin data is :", addAdmin)
@@ -112,13 +110,13 @@ func (h *WriteToJsonFile) callback(
 		fmt.Println("The file path is :", filePath)
 	} else {
 		fmt.Println("Unknown data structure")
-		return utils.HandleError(err.Error())
+		return wasmbridge.HandleError(err.Error())
 	}
 
 	// var jsonData interface{}
 	if err := json.Unmarshal(dataBytes, &jsonData); err != nil {
 		fmt.Printf("Failed to parse JSON data: %v\n", err)
-		return utils.HandleError("Invalid JSON data")
+		return wasmbridge.HandleError("Invalid JSON data")
 	}
 
 	// filePath := "C:/Users/allen/Working-repo/ymca/ymca-wellness-cafe-project/dappServer/test.json"
@@ -127,14 +125,14 @@ func (h *WriteToJsonFile) callback(
 	existingContent, err := os.ReadFile(filePath)
 	if err != nil && !os.IsNotExist(err) { // Ignore error if file doesn't exist
 		fmt.Printf("Failed to read existing file: %v\n", err)
-		return utils.HandleError(err.Error())
+		return wasmbridge.HandleError(err.Error())
 	}
 
 	var existingData []interface{}
 	if len(existingContent) > 0 {
 		if err := json.Unmarshal(existingContent, &existingData); err != nil {
 			fmt.Printf("Failed to parse existing JSON data: %v\n", err)
-			return utils.HandleError("Invalid existing JSON data")
+			return wasmbridge.HandleError("Invalid existing JSON data")
 		}
 	} else {
 		existingData = []interface{}{}
@@ -154,15 +152,15 @@ func (h *WriteToJsonFile) callback(
 	encoder.SetIndent("", "  ") // Pretty-print JSON
 	if err := encoder.Encode(existingData); err != nil {
 		fmt.Printf("Failed to write JSON data to file: %v\n", err)
-		return utils.HandleError(err.Error())
+		return wasmbridge.HandleError(err.Error())
 	}
 	response := fmt.Sprintf("Succesfully wrote data to DB")
-	err = utils.UpdateDataToWASM(caller, h.allocFunc, response, outputArgs)
+	err = wasmbridge.UpdateDataToWASM(caller, h.allocFunc, response, outputArgs)
 	if err != nil {
 		fmt.Println("Failed to update data to WASM", err)
-		return utils.HandleError(err.Error())
+		return wasmbridge.HandleError(err.Error())
 	}
 
 	fmt.Printf("Successfully wrote data to JSON file: %s\n", filePath)
-	return utils.HandleOk() // Return success
+	return wasmbridge.HandleOk() // Return success
 }
