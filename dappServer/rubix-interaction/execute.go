@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Execute handles the contract execution process
@@ -88,7 +89,9 @@ func ExecuteSmartContract(baseURL, contractHash, executorDid, contractMsg string
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -146,7 +149,9 @@ func getSmartContractChainBlocks(baseURL string, contractHash string, onlyLatest
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)

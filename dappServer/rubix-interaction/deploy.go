@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const CONFIG_PATH = ".config/config.toml"
@@ -117,7 +118,9 @@ func generateSmartContract(baseURL, deployerDid, wasmPath, libPath, statePath st
 	req.Header.Set("Accept", "multipart/form-data")
 
 	// Send the request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -181,7 +184,9 @@ func deploySmartContract(baseURL, contractHash, deployerDid string) (string, err
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -240,7 +245,9 @@ func SignatureResponse(baseURL, requestID string) (*SmartContractAPIResponseV1, 
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("signature request: failed to send request: %w", err)

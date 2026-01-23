@@ -2,12 +2,16 @@ module dapp-server
 
 go 1.22.6
 
-require github.com/gin-gonic/gin v1.10.0
+require (
+	github.com/bytecodealliance/wasmtime-go v1.0.0
+	github.com/gin-gonic/gin v1.10.0
+	github.com/mattn/go-sqlite3 v1.14.33
+)
 
 require (
-	github.com/bytecodealliance/wasmtime-go v1.0.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 )
 

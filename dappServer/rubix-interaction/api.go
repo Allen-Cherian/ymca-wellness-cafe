@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 func GetSmartContractData(token string, address string) []byte {
@@ -26,7 +27,9 @@ func GetSmartContractData(token string, address string) []byte {
 	}
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Error sending HTTP request:", err)
@@ -64,7 +67,9 @@ func RegisterCallBackUrl(smartContractTokenHash string, urlPort string, endPoint
 		return
 	}
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Error sending HTTP request:", err)
