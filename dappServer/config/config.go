@@ -158,13 +158,29 @@ func getEnvOrDefault(key, defaultValue string) string {
 // GetPostgresConnectionString builds the PostgreSQL connection string
 func GetPostgresConnectionString() string {
 	cfg := GetEnvConfig()
-	return fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+
+	// Build connection string, omitting password if empty
+	connStr := fmt.Sprintf(
+		"host=%s port=%s user=%s dbname=%s sslmode=%s",
 		cfg.DBHost,
 		cfg.DBPort,
 		cfg.DBUser,
-		cfg.DBPassword,
 		cfg.DBName,
 		cfg.DBSSLMode,
 	)
+
+	// Only add password if it's not empty
+	if cfg.DBPassword != "" {
+		connStr = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			cfg.DBHost,
+			cfg.DBPort,
+			cfg.DBUser,
+			cfg.DBPassword,
+			cfg.DBName,
+			cfg.DBSSLMode,
+		)
+	}
+
+	return connStr
 }

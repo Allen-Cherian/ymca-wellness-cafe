@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
+	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 )
 
 var db *sql.DB
@@ -35,7 +35,8 @@ type TransferStatus struct {
 // InitDB initializes the PostgreSQL database
 func InitDB(connStr string) error {
 	var err error
-	db, err = sql.Open("postgres", connStr)
+	fmt.Printf("🔍 [DEBUG] Connection string: %s\n", connStr)
+	db, err = sql.Open("pgx", connStr)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -46,11 +47,14 @@ func InitDB(connStr string) error {
 	db.SetConnMaxLifetime(5 * time.Minute) // Maximum lifetime of a connection
 
 	// Test connection
+	fmt.Println("🔍 [DEBUG] Testing connection with Ping...")
 	if err = db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
+	fmt.Println("🔍 [DEBUG] Ping successful!")
 
 	// Create table if not exists
+	fmt.Println("🔍 [DEBUG] Creating tables...")
 	if err = createTables(); err != nil {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
@@ -62,7 +66,8 @@ func InitDB(connStr string) error {
 
 // createTables creates the necessary database tables
 func createTables() error {
-	schema := `
+	// Create table
+	tableSQL := `
 	CREATE TABLE IF NOT EXISTS transfer_status (
 		request_id VARCHAR(255) PRIMARY KEY,
 		blockchain_tx_id VARCHAR(255),
@@ -81,18 +86,71 @@ func createTables() error {
 		completed_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL,
 		updated_at TIMESTAMP NOT NULL
-	);
+	)`
 
-	CREATE INDEX IF NOT EXISTS idx_blockchain_tx_id ON transfer_status(blockchain_tx_id);
-	CREATE INDEX IF NOT EXISTS idx_block_id ON transfer_status(block_id);
-	CREATE INDEX IF NOT EXISTS idx_status ON transfer_status(status);
-	CREATE INDEX IF NOT EXISTS idx_queued_at ON transfer_status(queued_at);
-	CREATE INDEX IF NOT EXISTS idx_admin_did ON transfer_status(admin_did);
-	CREATE INDEX IF NOT EXISTS idx_ft_transfer_txid ON transfer_status(ft_transfer_txid);
-	`
+	fmt.Println("🔍 [DEBUG] Executing CREATE TABLE statement...")
+	result, err := db.Exec(tableSQL)
+	if err != nil {
+		fmt.Printf("🔍 [DEBUG] CREATE TABLE failed: %v\n", err)
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	fmt.Printf("🔍 [DEBUG] CREATE TABLE succeeded, rows affected: %d\n", rowsAffected)
 
-	_, err := db.Exec(schema)
-	return err
+	// Create indexes (each statement separately for PostgreSQL compatibility)
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_blockchain_tx_id ON transfer_status(blockchain_tx_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_block_id ON transfer_status(block_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_status ON transfer_status(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_queued_at ON transfer_status(queued_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_did ON transfer_status(admin_did)`,
+		`CREATE INDEX IF NOT EXISTS idx_ft_transfer_txid ON transfer_status(ft_transfer_txid)`,
+	}
+
+	fmt.Printf("🔍 [DEBUG] Creating %d indexes...\n", len(indexes))
+	for i, indexSQL := range indexes {
+		result, err := db.Exec(indexSQL)
+		if err != nil {
+			fmt.Printf("🔍 [DEBUG] CREATE INDEX %d failed: %v\n", i, err)
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+		rowsAffected, _ := result.RowsAffected()
+		fmt.Printf("🔍 [DEBUG] CREATE INDEX %d succeeded, rows affected: %d\n", i, rowsAffected)
+	}
+
+	// Verify table was created by querying it
+	fmt.Println("🔍 [DEBUG] Verifying table creation...")
+
+	// First, check which database we're connected to
+	var currentDB string
+	db.QueryRow("SELECT current_database()").Scan(&currentDB)
+	fmt.Printf("🔍 [DEBUG] Connected to database: %s\n", currentDB)
+
+	// List ALL tables we can see
+	rows, _ := db.Query("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+	var allTables []string
+	for rows.Next() {
+		var t string
+		rows.Scan(&t)
+		allTables = append(allTables, t)
+	}
+	rows.Close()
+	fmt.Printf("🔍 [DEBUG] All tables visible to app: %v\n", allTables)
+
+	// Now check for our specific table
+	var tableName string
+	verifyErr := db.QueryRow("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename='transfer_status'").Scan(&tableName)
+	if verifyErr == sql.ErrNoRows {
+		fmt.Println("❌ [DEBUG] ERROR: Table transfer_status NOT FOUND in pg_tables!")
+		return fmt.Errorf("table creation verification failed: table not found")
+	} else if verifyErr != nil {
+		fmt.Printf("❌ [DEBUG] ERROR querying pg_tables: %v\n", verifyErr)
+		return fmt.Errorf("table verification query failed: %w", verifyErr)
+	}
+	fmt.Printf("✅ [DEBUG] Verified: Table '%s' exists in database\n", tableName)
+
+	fmt.Println("✅ Database tables and indexes created successfully")
+	return nil
 }
 
 // CreateTransferStatus creates a new transfer status record
@@ -108,10 +166,13 @@ func CreateTransferStatus(status *TransferStatus) error {
 			request_id, blockchain_tx_id, block_id, activity_ids, user_did, admin_did,
 			reward_points, status, message, contract_hash, error_details, ft_transfer_txid,
 			queued_at, started_at, completed_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`
 
-	_, err = db.Exec(
+	fmt.Printf("🔍 [DEBUG] CreateTransferStatus called for request_id=%s\n", status.RequestID)
+	fmt.Printf("🔍 [DEBUG] Database pointer: %v\n", db)
+
+	result, err := db.Exec(
 		query,
 		status.RequestID,
 		status.BlockchainTxID,
@@ -133,8 +194,12 @@ func CreateTransferStatus(status *TransferStatus) error {
 	)
 
 	if err != nil {
+		fmt.Printf("🔍 [DEBUG] Exec FAILED: %v\n", err)
 		return fmt.Errorf("failed to create transfer status: %w", err)
 	}
+
+	rowsAffected, _ := result.RowsAffected()
+	fmt.Printf("🔍 [DEBUG] Exec succeeded, rows affected: %d\n", rowsAffected)
 
 	return nil
 }
@@ -146,7 +211,7 @@ func GetTransferStatus(requestID string) (*TransferStatus, error) {
 		       reward_points, status, message, contract_hash, error_details, ft_transfer_txid,
 		       queued_at, started_at, completed_at, created_at, updated_at
 		FROM transfer_status
-		WHERE request_id = ?
+		WHERE request_id = $1
 	`
 
 	var status TransferStatus
@@ -194,7 +259,7 @@ func GetTransferStatusByBlockId(blockId string) (*TransferStatus, error) {
 		       reward_points, status, message, contract_hash, error_details,
 		       queued_at, started_at, completed_at, created_at, updated_at
 		FROM transfer_status
-		WHERE block_id = ?
+		WHERE block_id = $1
 	`
 
 	var status TransferStatus
@@ -236,40 +301,54 @@ func GetTransferStatusByBlockId(blockId string) (*TransferStatus, error) {
 
 // UpdateTransferStatus updates an existing transfer status
 func UpdateTransferStatus(requestID string, updates map[string]interface{}) error {
-	// Build dynamic update query
-	query := "UPDATE transfer_status SET updated_at = ?"
+	// Build dynamic update query with PostgreSQL numbered placeholders
+	query := "UPDATE transfer_status SET updated_at = $1"
 	args := []interface{}{time.Now()}
+	paramCount := 1
 
 	if blockchainTxID, ok := updates["blockchain_tx_id"]; ok {
-		query += ", blockchain_tx_id = ?"
+		paramCount++
+		query += fmt.Sprintf(", blockchain_tx_id = $%d", paramCount)
 		args = append(args, blockchainTxID)
 	}
 	if blockId, ok := updates["block_id"]; ok {
-		query += ", block_id = ?"
+		paramCount++
+		query += fmt.Sprintf(", block_id = $%d", paramCount)
 		args = append(args, blockId)
 	}
 	if status, ok := updates["status"]; ok {
-		query += ", status = ?"
+		paramCount++
+		query += fmt.Sprintf(", status = $%d", paramCount)
 		args = append(args, status)
 	}
 	if message, ok := updates["message"]; ok {
-		query += ", message = ?"
+		paramCount++
+		query += fmt.Sprintf(", message = $%d", paramCount)
 		args = append(args, message)
 	}
 	if errorDetails, ok := updates["error_details"]; ok {
-		query += ", error_details = ?"
+		paramCount++
+		query += fmt.Sprintf(", error_details = $%d", paramCount)
 		args = append(args, errorDetails)
 	}
+	if ftTransferTxID, ok := updates["ft_transfer_txid"]; ok {
+		paramCount++
+		query += fmt.Sprintf(", ft_transfer_txid = $%d", paramCount)
+		args = append(args, ftTransferTxID)
+	}
 	if startedAt, ok := updates["started_at"]; ok {
-		query += ", started_at = ?"
+		paramCount++
+		query += fmt.Sprintf(", started_at = $%d", paramCount)
 		args = append(args, startedAt)
 	}
 	if completedAt, ok := updates["completed_at"]; ok {
-		query += ", completed_at = ?"
+		paramCount++
+		query += fmt.Sprintf(", completed_at = $%d", paramCount)
 		args = append(args, completedAt)
 	}
 
-	query += " WHERE request_id = ?"
+	paramCount++
+	query += fmt.Sprintf(" WHERE request_id = $%d", paramCount)
 	args = append(args, requestID)
 
 	result, err := db.Exec(query, args...)

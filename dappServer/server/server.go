@@ -118,8 +118,15 @@ func BootupServer() {
 
 	// router.GET("/request-status", getRequestStatusHandler)
 
+	// Initialize the queue worker at startup
+	GetTransferQueue()
+
 	// Start the server on port 9000
-	router.Run(":9000")
+	fmt.Println("🚀 Starting server on port 9000...")
+	err := router.Run(":9000")
+	if err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
 func APITransferReward(c *gin.Context) {
 	fmt.Println("═══════════════════════════════════════════════════════════")
