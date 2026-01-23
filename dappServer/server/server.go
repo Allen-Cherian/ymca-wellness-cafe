@@ -226,9 +226,9 @@ func APITransferReward(c *gin.Context) {
 			updateTime.Format("15:04:05.000"), updateTime.Sub(startTime))
 	}()
 
-	// Step 5: Wait for callback with 3 minute timeout
-	// Callback will arrive after its 5s delay, by which time the background goroutine should have completed
-	fmt.Printf("⏳ [%s] Waiting for callback (timeout: 3 minutes)...\n", time.Now().Format("15:04:05.000"))
+	// Step 5: Wait for callback with 1 hour timeout
+	// Callback will arrive after its 1s delay, by which time the background goroutine should have completed
+	fmt.Printf("⏳ [%s] Waiting for callback (timeout: 1 hour)...\n", time.Now().Format("15:04:05.000"))
 	select {
 	case callbackResult := <-responseChan:
 		// Success! Callback arrived in time
@@ -257,7 +257,7 @@ func APITransferReward(c *gin.Context) {
 			})
 		}
 
-	case <-time.After(3 * time.Minute):
+	case <-time.After(1 * time.Hour):
 		// Timeout - callback didn't arrive in time
 		fmt.Printf("Timeout waiting for callback for transaction %s\n", transactionID)
 
@@ -526,7 +526,7 @@ func ftDappHandler(c *gin.Context) {
 
 	// Add delay to give API time to complete setup (transactionID, DB creation, registration)
 	fmt.Println("⏳ Waiting 5 seconds for API setup to complete...")
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	fmt.Println("✅ Delay complete, processing callback...")
 	// cfg, err := config.GetConfig()
 	// if err != nil {

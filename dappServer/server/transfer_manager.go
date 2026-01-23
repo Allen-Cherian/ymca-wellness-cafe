@@ -203,7 +203,7 @@ func (m *TransferManager) MarkTimeout(transactionID string, blockId string) erro
 	return nil
 }
 
-// cleanupStaleRequests removes stale pending requests (timeout after 10 minutes)
+// cleanupStaleRequests removes stale pending requests (timeout after 1.5 hours)
 func (m *TransferManager) cleanupStaleRequests() {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -212,7 +212,7 @@ func (m *TransferManager) cleanupStaleRequests() {
 		m.pendingMu.Lock()
 		now := time.Now()
 		for blockId, req := range m.pendingByBlockId {
-			if now.Sub(req.CreatedAt) > 10*time.Minute {
+			if now.Sub(req.CreatedAt) > 90*time.Minute {
 				close(req.ResponseChan)
 				delete(m.pendingByBlockId, blockId)
 				fmt.Printf("Cleaned up stale pending request: transactionID=%s, blockId=%s\n", req.TransactionID, blockId)
