@@ -309,24 +309,11 @@ func APITransferReward(c *gin.Context) {
 	// Step 6: Return immediately with request_id
 	// ═══════════════════════════════════════════════════════════
 	queueSize := queue.GetQueueSize()
-	estimatedWaitSeconds := queueSize * 8 // Rough estimate: 8 seconds per transfer
 
 	c.JSON(http.StatusAccepted, gin.H{
 		"status":     "queued",
 		"message":    "Transfer request queued for processing",
 		"request_id": requestID,
-		"data": gin.H{
-			"rewards_to_award": rewardPoints,
-			"activity_ids":     req.ActivityID,
-			"user_did":         req.UserDID,
-			"admin_did":        req.AdminDID,
-		},
-		"queue_info": gin.H{
-			"position":           queueSize,
-			"estimated_wait_sec": estimatedWaitSeconds,
-		},
-		"check_status_url": fmt.Sprintf("/api/rewards/status/%s", requestID),
-		"note":             "Use the check_status_url to poll for transfer completion",
 	})
 
 	fmt.Printf("✅ Response sent: request_id=%s, queue_position=%d\n", requestID, queueSize)
