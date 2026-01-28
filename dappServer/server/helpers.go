@@ -7,6 +7,10 @@ import (
 )
 
 // ExtractLatestBlockId fetches smart contract data and extracts the latest BlockId
+// DEPRECATED: This function is no longer needed for the main transfer flow since
+// SignatureResponseV2() now returns the block_id directly from the blockchain.
+// This eliminates race conditions where multiple requests might see the same "latest" block.
+// Kept for potential future use cases or backward compatibility.
 // Note: GetSmartContractData already passes "latest: true", so it returns only the latest block
 func ExtractLatestBlockId(contractHash string, nodeURL string) (string, error) {
 	// Fetch smart contract data (returns latest block only)

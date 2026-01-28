@@ -52,3 +52,18 @@ type SmartContractBlock struct {
 	BlockId           string `json:"BlockId"`
 	SmartContractData string `json:"SmartContractData"`
 }
+
+// ContractExecuteResponse represents the blockchain's response with both transaction_id and block_id
+// This is returned by the new signature-response API that provides both values together
+type ContractExecuteResponse struct {
+	TransactionId string `json:"transaction_id"`
+	BlockId       string `json:"block_id"`
+}
+
+// SmartContractAPIResponseV3 represents the new API response structure with structured result
+// Use this with SignatureResponseV2() to get both transaction_id and block_id in one call
+type SmartContractAPIResponseV3 struct {
+	Status  bool                    `json:"status"`
+	Message string                  `json:"message"`
+	Result  ContractExecuteResponse `json:"result"`
+}

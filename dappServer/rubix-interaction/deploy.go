@@ -213,6 +213,10 @@ func deploySmartContract(baseURL, contractHash, deployerDid string) (string, err
 	return apiResp.Result.Id, nil
 }
 
+// SignatureResponse sends signature confirmation to blockchain
+// DEPRECATED: This function only returns transaction_id as a string in Result field.
+// Use SignatureResponseV2() for new code that needs both transaction_id and block_id.
+// This function is kept for backward compatibility with existing code.
 func SignatureResponse(baseURL, requestID string) (*SmartContractAPIResponseV1, error) {
 	// Create request body
 	requestBody := struct {
@@ -269,6 +273,75 @@ func SignatureResponse(baseURL, requestID string) (*SmartContractAPIResponseV1, 
 	// Check response status
 	if !apiResp.Status {
 		return &apiResp, fmt.Errorf(apiResp.Message)
+	}
+
+	return &apiResp, nil
+}
+
+// SignatureResponseV2 sends signature confirmation to blockchain and returns both transaction_id and block_id
+// This is the recommended function for new code that needs to track both values.
+// The blockchain now returns both values in the response, eliminating race conditions.
+func SignatureResponseV2(baseURL, requestID string) (*SmartContractAPIResponseV3, error) {
+	// Create request body
+	requestBody := struct {
+		Id       string `json:"id"`
+		Mode     int    `json:"mode"`
+		Password string `json:"password"`
+	}{
+		Id:       requestID,
+		Mode:     0,
+		Password: "mypassword",
+	}
+
+	// Marshal request body
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Create request URL
+	requestURL, err := url.JoinPath(baseURL, "/api/signature-response")
+	if err != nil {
+		return nil, fmt.Errorf("signature response: unable to form request URL")
+	}
+
+	req, err := http.NewRequest("POST", requestURL, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send request
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("signature request: failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("signature request: failed to read response: %w", err)
+	}
+
+	// Parse response with NEW structure (includes both transaction_id and block_id)
+	var apiResp SmartContractAPIResponseV3
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("signature request: failed to parse response: %w", err)
+	}
+
+	// Check response status
+	if !apiResp.Status {
+		return &apiResp, fmt.Errorf(apiResp.Message)
+	}
+
+	// Validate both fields are present
+	if apiResp.Result.TransactionId == "" || apiResp.Result.BlockId == "" {
+		return nil, fmt.Errorf("incomplete response: missing transaction_id or block_id")
 	}
 
 	return &apiResp, nil

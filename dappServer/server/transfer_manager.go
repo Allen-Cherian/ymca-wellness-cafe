@@ -223,7 +223,9 @@ func (m *TransferManager) cleanupStaleRequests() {
 }
 
 // UpdatePendingRequestBlockId updates the blockId key for a pending request
-// This is used when we initially register with a temporary blockId, then get the actual one
+// DEPRECATED: This function is no longer needed since SignatureResponseV2() now returns
+// both transaction_id and block_id directly from the blockchain, eliminating the need
+// for temporary keys and map updates. Kept for backward compatibility only.
 func (m *TransferManager) UpdatePendingRequestBlockId(oldBlockId string, newBlockId string) {
 	m.pendingMu.Lock()
 	defer m.pendingMu.Unlock()

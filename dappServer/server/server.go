@@ -162,85 +162,58 @@ func APITransferReward(c *gin.Context) {
 	}
 	fmt.Println("Smart contract response (requestID):", requestID)
 
-	// Step 2: Sign the transaction (THIS CREATES THE BLOCK ON BLOCKCHAIN)
+	// Step 2: Sign the transaction - NOW returns BOTH transaction_id AND block_id
 	// NOTE: Blockchain triggers callback BEFORE returning response
-	signatureResponse, err := rubix_interaction.SignatureResponse(url, requestID)
+	signatureResponse, err := rubix_interaction.SignatureResponseV2(url, requestID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign transaction", "details": err.Error()})
 		fmt.Println("failed to send signature response:", err)
 		return
 	}
 
-	// Extract the ACTUAL transaction ID from signature response
-	// This is the real transaction ID now that the block has been created
-	transactionID := signatureResponse.Result
-	fmt.Printf("✅ Transaction committed to blockchain! Transaction ID: %s\n", transactionID)
+	// Extract BOTH values from the response - no more race conditions!
+	transactionID := signatureResponse.Result.TransactionId
+	blockId := signatureResponse.Result.BlockId
+	fmt.Printf("✅ Transaction committed to blockchain! TransactionID: %s, BlockId: %s\n", transactionID, blockId)
 	fmt.Printf("📋 SignatureResponse.Message: '%s'\n", signatureResponse.Message)
 
-	// Step 3: Register pending request immediately with transactionID as temporary key
-	// (Callback has 5s delay, so we have time to update with real blockId)
+	// Step 3: Register pending request with ACTUAL blockId (no temporary key needed!)
 	manager := GetTransferManager()
-	responseChan := manager.RegisterPendingRequest(transactionID, transactionID) // Use transactionID as temp blockId
-	fmt.Printf("⚡ Registered pending request with temporary key (transactionID): %s\n", transactionID)
+	responseChan := manager.RegisterPendingRequest(transactionID, blockId)
+	fmt.Printf("⚡ Registered pending request: transactionID=%s, blockId=%s\n", transactionID, blockId)
 
-	// Step 4: Fetch BlockId and create DB record in BACKGROUND
-	// This runs in parallel with the callback's 5-second delay
-	go func() {
-		startTime := time.Now()
-		fmt.Printf("🚀 [%s] Background goroutine: Started\n", startTime.Format("15:04:05.000"))
-
-		// Fetch BlockId (block is already created)
-		blockId, err := ExtractLatestBlockId(transferContractHash, url)
-		extractTime := time.Now()
-		if err != nil {
-			fmt.Printf("⚠️  [%s] Background: Failed to extract BlockId: %v\n", extractTime.Format("15:04:05.000"), err)
-			return
-		}
-		fmt.Printf("📦 [%s] Background: Extracted BlockId: %s (took %v)\n",
-			extractTime.Format("15:04:05.000"), blockId, extractTime.Sub(startTime))
-
-		// Store in database with status "pending"
-		_, err = manager.CreateTransfer(
-			transactionID,
-			blockId,
+	// Step 4: Store in database (can be async - doesn't affect callback routing)
+	// Using background goroutine to not block the callback wait
+	go func(txnID, blkID string) {
+		_, err := manager.CreateTransfer(
+			txnID,
+			blkID,
 			transferContractHash,
 			req.ActivityID,
 			req.UserDID,
 			req.AdminDID,
 			rewardPoints,
 		)
-		dbTime := time.Now()
 		if err != nil {
-			fmt.Printf("⚠️  [%s] Background: Failed to create transfer in DB: %v\n", dbTime.Format("15:04:05.000"), err)
-			return
+			fmt.Printf("⚠️  Failed to create transfer in DB: %v\n", err)
+		} else {
+			fmt.Printf("✅ Transfer stored in DB: transactionID=%s, blockId=%s\n", txnID, blkID)
 		}
-		fmt.Printf("✅ [%s] Background: Transfer stored in DB: transactionID=%s, blockId=%s (took %v)\n",
-			dbTime.Format("15:04:05.000"), transactionID, blockId, dbTime.Sub(extractTime))
-
-		// Update pending request mapping from transactionID to actual blockId
-		manager.UpdatePendingRequestBlockId(transactionID, blockId)
-		updateTime := time.Now()
-		fmt.Printf("🔄 [%s] Background: Updated pending request mapping: %s → %s (took %v)\n",
-			updateTime.Format("15:04:05.000"), transactionID, blockId, updateTime.Sub(dbTime))
-		fmt.Printf("✅ [%s] Background goroutine: COMPLETED (total time: %v)\n",
-			updateTime.Format("15:04:05.000"), updateTime.Sub(startTime))
-	}()
+	}(transactionID, blockId)
 
 	// Step 5: Wait for callback with 1 hour timeout
-	// Callback will arrive after its 1s delay, by which time the background goroutine should have completed
-	fmt.Printf("⏳ [%s] Waiting for callback (timeout: 1 hour)...\n", time.Now().Format("15:04:05.000"))
+	fmt.Printf("⏳ Waiting for callback (timeout: 1 hour)...\n")
 	select {
 	case callbackResult := <-responseChan:
 		// Success! Callback arrived in time
-		fmt.Printf("🎉 [%s] Received callback for transaction %s: success=%v\n",
-			time.Now().Format("15:04:05.000"), transactionID, callbackResult.Success)
+		fmt.Printf("🎉 Received callback for transaction %s: success=%v\n", transactionID, callbackResult.Success)
 
 		if callbackResult.Success {
 			c.JSON(http.StatusOK, gin.H{
 				"status":         "success",
 				"message":        "Reward transfer completed successfully",
 				"transaction_id": transactionID,
-				"block_id":       callbackResult.BlockId,
+				"block_id":       blockId,
 				"data": gin.H{
 					"rewards_awarded": float64(rewardPoints),
 					"activity_ids":    req.ActivityID,
@@ -253,26 +226,17 @@ func APITransferReward(c *gin.Context) {
 				"status":         "failed",
 				"message":        "Reward transfer failed",
 				"transaction_id": transactionID,
+				"block_id":       blockId,
 				"error":          callbackResult.Error,
 			})
 		}
 
 	case <-time.After(1 * time.Hour):
 		// Timeout - callback didn't arrive in time
-		fmt.Printf("Timeout waiting for callback for transaction %s\n", transactionID)
-
-		// Try to get blockId from database (background goroutine may or may not have completed)
-		var cleanupKey string
-		status, err := database.GetTransferStatus(transactionID)
-		if err == nil && status.BlockId != "" {
-			cleanupKey = status.BlockId
-		} else {
-			// Background goroutine hasn't completed yet, use transactionID as key
-			cleanupKey = transactionID
-		}
+		fmt.Printf("⏰ Timeout waiting for callback for transaction %s\n", transactionID)
 
 		// Mark as timeout in database
-		err = manager.MarkTimeout(transactionID, cleanupKey)
+		err = manager.MarkTimeout(transactionID, blockId)
 		if err != nil {
 			fmt.Printf("Failed to mark timeout: %v\n", err)
 		}
@@ -281,6 +245,7 @@ func APITransferReward(c *gin.Context) {
 			"status":         "timeout",
 			"message":        "Transfer initiated but confirmation timed out. Check status later using transaction_id.",
 			"transaction_id": transactionID,
+			"block_id":       blockId,
 			"data": gin.H{
 				"rewards_awarded": float64(rewardPoints),
 				"activity_ids":    req.ActivityID,
