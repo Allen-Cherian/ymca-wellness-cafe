@@ -83,9 +83,9 @@ type RequestIDResult struct {
 }
 
 type FinalResponse struct {
-	Status  bool            `json:"status"`
-	Message string          `json:"message"`
-	Result  RequestIDResult `json:"result"`
+	Status  bool        `json:"status"`
+	Message string      `json:"message"`
+	Result  interface{} `json:"result"`
 }
 
 func BootupServer() {
@@ -319,14 +319,14 @@ func APITransferReward(c *gin.Context) {
 	// ═══════════════════════════════════════════════════════════
 	queueSize := queue.GetQueueSize()
 
-	requestIdtobeSent := RequestIDResult{
-		RequestID: requestID,
-	}
-	fmt.Println("The struct : requestIdtobeSent", requestIdtobeSent)
+	// requestIdtobeSent := RequestIDResult{
+	// 	RequestID: requestID,
+	// }
+	// fmt.Println("The struct : requestIdtobeSent", requestIdtobeSent)
 	response := FinalResponse{
 		Status:  true,
 		Message: requestID,
-		Result:  requestIdtobeSent,
+		Result:  RequestIDResult{RequestID: requestID},
 	}
 	// response := gin.H{
 	// 	"status":  true,
