@@ -39,11 +39,18 @@ func APIAddAdmin(c *gin.Context) {
 	fmt.Println("The url is :", url)
 	contractMsg := fmt.Sprintf(`{"add_admin": {"admin_did":"%s"}}`, req.NewAdminDID)
 	fmt.Println("The contract message is:", contractMsg)
-	smartContractHash := config.GetEnvConfig().AddAdminContract //Loading the smart contract hash from config
-	if smartContractHash == "" {
-		fmt.Println("Smart contract hash is not set in the config")
+
+	// Get the specific add_admin contract for this admin
+	smartContractHash, err := config.GetContractForAdmin(req.ExistingAdminDID, "add_admin")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Add admin contract not found for admin",
+			"details": err.Error(),
+		})
+		fmt.Printf("Failed to get add_admin contract for admin %s: %v\n", req.ExistingAdminDID, err)
 		return
 	}
+	fmt.Printf("Using add_admin contract: %s for admin: %s\n", smartContractHash, req.ExistingAdminDID)
 	smartContractResponse, err := rubix_interaction.ExecuteSmartContract(url, smartContractHash, req.ExistingAdminDID, contractMsg)
 	if err != nil {
 		fmt.Println("failed to execute smart contract:", err)
@@ -56,12 +63,9 @@ func APIAddAdmin(c *gin.Context) {
 		return
 	}
 	fmt.Println("Signature response sent successfully")
-	addAdminContractHash := config.GetEnvConfig().AddAdminContract //Loading the smart contract hash from config
-	if addAdminContractHash == "" {
-		fmt.Println("addAdminContractHash is not set in the config")
-		return
-	}
-	block := rubix_interaction.GetSmartContractData(addAdminContractHash, url) //config.NodeAddress)
+
+	// Use the same contract hash we retrieved earlier
+	block := rubix_interaction.GetSmartContractData(smartContractHash, url) //config.NodeAddress)
 	if block == nil {
 		fmt.Println("Unable to fetch latest smart contract data")
 		return

@@ -146,12 +146,17 @@ func APITransferReward(c *gin.Context) {
 	contractMsg := fmt.Sprintf(`{"transfer_sample_ft":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`, float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
 	fmt.Println("The contract message is:", contractMsg)
 
-	transferContractHash := config.GetEnvConfig().TransferContract
-	if transferContractHash == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer contract hash not configured"})
-		fmt.Println("transferContractHash is not set in the config")
+	// Get the specific transfer contract for this admin
+	transferContractHash, err := config.GetContractForAdmin(req.AdminDID, "transfer")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Transfer contract not found for admin",
+			"details": err.Error(),
+		})
+		fmt.Printf("Failed to get transfer contract for admin %s: %v\n", req.AdminDID, err)
 		return
 	}
+	fmt.Printf("Using transfer contract: %s for admin: %s\n", transferContractHash, req.AdminDID)
 
 	// Step 1: Execute smart contract
 	requestID, err := rubix_interaction.ExecuteSmartContract(url, transferContractHash, req.AdminDID, contractMsg)
@@ -346,11 +351,18 @@ func APIAddActivity(c *gin.Context) {
 	fmt.Println("The url is :", url)
 	contractMsg := fmt.Sprintf(`{"add_activity": {"activity_id":"%s","reward_points":%d}}`, req.ActivityID, req.RewardPoints)
 	fmt.Println("The contract message is:", contractMsg)
-	smartContractHash := config.GetEnvConfig().AddActivityContract //Loading the smart contract hash from config
-	if smartContractHash == "" {
-		fmt.Println("Smart contract hash is not set in the config")
+
+	// Get the specific add_activity contract for this admin
+	smartContractHash, err := config.GetContractForAdmin(req.AdminDID, "add_activity")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Add activity contract not found for admin",
+			"details": err.Error(),
+		})
+		fmt.Printf("Failed to get add_activity contract for admin %s: %v\n", req.AdminDID, err)
 		return
 	}
+	fmt.Printf("Using add_activity contract: %s for admin: %s\n", smartContractHash, req.AdminDID)
 	smartContractResponse, err := rubix_interaction.ExecuteSmartContract(url, smartContractHash, req.AdminDID, contractMsg)
 	if err != nil {
 		fmt.Println("failed to execute smart contract:", err)
@@ -363,12 +375,9 @@ func APIAddActivity(c *gin.Context) {
 		return
 	}
 	fmt.Println("Signature response sent successfully")
-	addActivityContractHash := config.GetEnvConfig().AddActivityContract //Loading the smart contract hash from config
-	if addActivityContractHash == "" {
-		fmt.Println("addActivityContractHash is not set in the config")
-		return
-	}
-	block := rubix_interaction.GetSmartContractData(addActivityContractHash, url) //config.NodeAddress)
+
+	// Use the same contract hash we retrieved earlier
+	block := rubix_interaction.GetSmartContractData(smartContractHash, url) //config.NodeAddress)
 	if block == nil {
 		fmt.Println("Unable to fetch latest smart contract data")
 		return
