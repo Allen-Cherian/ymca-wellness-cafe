@@ -322,7 +322,7 @@ func APITransferReward(c *gin.Context) {
 	requestIdtobeSent := RequestIDResult{
 		RequestID: requestID,
 	}
-
+	fmt.Println("The struct : requestIdtobeSent", requestIdtobeSent)
 	response := FinalResponse{
 		Status:  true,
 		Message: requestID,
