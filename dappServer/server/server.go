@@ -323,16 +323,16 @@ func APITransferReward(c *gin.Context) {
 	// 	RequestID: requestID,
 	// }
 	// fmt.Println("The struct : requestIdtobeSent", requestIdtobeSent)
-	response := FinalResponse{
-		Status:  true,
-		Message: requestID,
-		Result:  RequestIDResult{RequestID: requestID},
-	}
-	// response := gin.H{
-	// 	"status":  true,
-	// 	"message": "Transfer request queued for processing",
-	// 	"result":  requestIdtobeSent,
+	// response := FinalResponse{
+	// 	Status:  true,
+	// 	Message: requestID,
+	// 	Result:  RequestIDResult{RequestID: requestID},
 	// }
+	response := gin.H{
+		"status":  true,
+		"message": "Transfer request queued for processing",
+		"data":    RequestIDResult{RequestID: requestID},
+	}
 
 	fmt.Printf("🔍 [DEBUG] Response payload: %+v\n", response)
 
