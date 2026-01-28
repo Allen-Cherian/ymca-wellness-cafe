@@ -325,7 +325,7 @@ func APITransferReward(c *gin.Context) {
 
 	response := FinalResponse{
 		Status:  true,
-		Message: "Transfer request queued for processing",
+		Message: requestID,
 		Result:  requestIdtobeSent,
 	}
 	// response := gin.H{
