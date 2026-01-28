@@ -78,6 +78,9 @@ type Activity struct {
 	BlockHash    string `json:"block_hash"`
 	RewardPoints int    `json:"reward_points"`
 }
+type requestId struct {
+	RequestID string `json:"request_id"`
+}
 
 func BootupServer() {
 	gin.SetMode(gin.ReleaseMode) //
@@ -258,8 +261,8 @@ func APITransferReward(c *gin.Context) {
 
 	err = database.CreateTransferStatus(&database.TransferStatus{
 		RequestID:      requestID,
-		BlockchainTxID: "",                                                     // Will be filled by worker
-		BlockId:        "",                                                     // Will be filled by worker
+		BlockchainTxID: "", // Will be filled by worker
+		BlockId:        "", // Will be filled by worker
 		ActivityIDs:    req.ActivityID,
 		UserDID:        req.UserDID,
 		AdminDID:       req.AdminDID,
@@ -310,12 +313,13 @@ func APITransferReward(c *gin.Context) {
 	// ═══════════════════════════════════════════════════════════
 	queueSize := queue.GetQueueSize()
 
+	requestIdtobeSent := requestId{
+		RequestID: requestID,
+	}
 	response := gin.H{
 		"status":  true,
 		"message": "Transfer request queued for processing",
-		"result": gin.H{
-			"request_id": requestID,
-		},
+		"result":  requestIdtobeSent,
 	}
 
 	fmt.Printf("🔍 [DEBUG] Response payload: %+v\n", response)
