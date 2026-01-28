@@ -311,9 +311,11 @@ func APITransferReward(c *gin.Context) {
 	queueSize := queue.GetQueueSize()
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"status":     "queued",
-		"message":    "Transfer request queued for processing",
-		"request_id": requestID,
+		"status":  true,
+		"message": "Transfer request queued for processing",
+		"result": gin.H{
+			"request_id": requestID,
+		},
 	})
 
 	fmt.Printf("✅ Response sent: request_id=%s, queue_position=%d\n", requestID, queueSize)
