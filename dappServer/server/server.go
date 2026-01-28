@@ -78,14 +78,14 @@ type Activity struct {
 	BlockHash    string `json:"block_hash"`
 	RewardPoints int    `json:"reward_points"`
 }
-type requestId struct {
+type RequestIDResult struct {
 	RequestID string `json:"request_id"`
 }
 
 type FinalResponse struct {
-	Status  bool        `json:"status"`
-	Message string      `json:"message"`
-	Result  interface{} `json:"result"`
+	Status  bool            `json:"status"`
+	Message string          `json:"message"`
+	Result  RequestIDResult `json:"result"`
 }
 
 func BootupServer() {
@@ -319,7 +319,7 @@ func APITransferReward(c *gin.Context) {
 	// ═══════════════════════════════════════════════════════════
 	queueSize := queue.GetQueueSize()
 
-	requestIdtobeSent := requestId{
+	requestIdtobeSent := RequestIDResult{
 		RequestID: requestID,
 	}
 
