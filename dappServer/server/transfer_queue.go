@@ -121,7 +121,7 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	url := fmt.Sprintf("http://localhost:%s", nodePort)
 	rewardPoints := len(req.ActivityID)
 
-	contractMsg := fmt.Sprintf(`{"transfer_ytoken":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`,
+	contractMsg := fmt.Sprintf(`{"transfer_sample_ft":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`,
 		float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
 
 	transferContractHash := config.GetEnvConfig().TransferContract
@@ -215,10 +215,10 @@ func (q *TransferQueue) handleCallbackAsync(requestID string, blockId string, re
 		completedAt := time.Now()
 		if callbackResult.Success {
 			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
-				"status":          "success",
-				"message":         callbackResult.Message,
+				"status":           "success",
+				"message":          callbackResult.Message,
 				"ft_transfer_txid": callbackResult.FTTransferTxID,
-				"completed_at":    completedAt,
+				"completed_at":     completedAt,
 			})
 			if err != nil {
 				fmt.Printf("❌ Failed to update status to success: %v\n", err)
