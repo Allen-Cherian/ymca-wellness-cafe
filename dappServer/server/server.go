@@ -82,6 +82,12 @@ type requestId struct {
 	RequestID string `json:"request_id"`
 }
 
+type FinalResponse struct {
+	Status  bool        `json:"status"`
+	Message string      `json:"message"`
+	Result  interface{} `json:"result"`
+}
+
 func BootupServer() {
 	gin.SetMode(gin.ReleaseMode) //
 	log.Println("Current Gin Mode:", gin.Mode())
@@ -316,11 +322,17 @@ func APITransferReward(c *gin.Context) {
 	requestIdtobeSent := requestId{
 		RequestID: requestID,
 	}
-	response := gin.H{
-		"status":  true,
-		"message": "Transfer request queued for processing",
-		"result":  requestIdtobeSent,
+
+	response := FinalResponse{
+		Status:  true,
+		Message: "Transfer request queued for processing",
+		Result:  requestIdtobeSent,
 	}
+	// response := gin.H{
+	// 	"status":  true,
+	// 	"message": "Transfer request queued for processing",
+	// 	"result":  requestIdtobeSent,
+	// }
 
 	fmt.Printf("🔍 [DEBUG] Response payload: %+v\n", response)
 
