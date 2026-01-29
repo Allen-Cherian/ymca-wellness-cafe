@@ -16,65 +16,110 @@ type TransferJob struct {
 	QueuedAt  time.Time             // When job was added to queue
 }
 
-// TransferQueue manages sequential processing of transfer requests
-type TransferQueue struct {
-	queue chan *TransferJob
-	mu    sync.RWMutex
+// AdminQueue represents a queue for a specific admin
+type AdminQueue struct {
+	adminDID string
+	queue    chan *TransferJob
+	worker   *sync.Once // Ensures worker starts only once
+}
+
+// TransferQueueManager manages multiple admin queues for parallel processing
+type TransferQueueManager struct {
+	adminQueues map[string]*AdminQueue // Map: adminDID -> AdminQueue
+	mu          sync.RWMutex
 }
 
 var (
-	transferQueue     *TransferQueue
-	transferQueueOnce sync.Once
+	queueManager     *TransferQueueManager
+	queueManagerOnce sync.Once
 )
 
-// GetTransferQueue returns the singleton queue instance
-func GetTransferQueue() *TransferQueue {
-	transferQueueOnce.Do(func() {
-		transferQueue = &TransferQueue{
-			queue: make(chan *TransferJob, 1000), // Buffer for 1000 jobs
+// GetQueueManager returns the singleton queue manager instance
+func GetQueueManager() *TransferQueueManager {
+	queueManagerOnce.Do(func() {
+		queueManager = &TransferQueueManager{
+			adminQueues: make(map[string]*AdminQueue),
 		}
-		// Start the sequential worker
-		go transferQueue.worker()
+		fmt.Println("🚀 Transfer queue manager initialized (multi-admin support)")
 	})
-	return transferQueue
+	return queueManager
 }
 
-// Enqueue adds a transfer job to the queue
-func (q *TransferQueue) Enqueue(requestID string, req TransferRewardRequest) error {
+// GetOrCreateAdminQueue gets or creates a queue for a specific admin
+func (qm *TransferQueueManager) GetOrCreateAdminQueue(adminDID string) *AdminQueue {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	// Check if queue already exists
+	if queue, exists := qm.adminQueues[adminDID]; exists {
+		return queue
+	}
+
+	// Create new queue for this admin
+	queue := &AdminQueue{
+		adminDID: adminDID,
+		queue:    make(chan *TransferJob, 1000), // Buffer for 1000 jobs per admin
+		worker:   &sync.Once{},
+	}
+
+	// Start dedicated worker for this admin (runs once)
+	queue.worker.Do(func() {
+		go qm.adminWorker(queue)
+	})
+
+	qm.adminQueues[adminDID] = queue
+	fmt.Printf("🆕 Created new queue for admin: %s\n", adminDID)
+
+	return queue
+}
+
+// Enqueue adds a transfer job to the appropriate admin's queue
+func (qm *TransferQueueManager) Enqueue(requestID string, req TransferRewardRequest) error {
+	// Get or create queue for this admin
+	adminQueue := qm.GetOrCreateAdminQueue(req.AdminDID)
+
 	job := &TransferJob{
 		RequestID: requestID,
 		Request:   req,
 		QueuedAt:  time.Now(),
 	}
 
-	// Try to add to queue (non-blocking)
+	// Try to add to admin's queue (non-blocking)
 	select {
-	case q.queue <- job:
-		fmt.Printf("📥 Queued transfer: request_id=%s, queue_size=%d\n", requestID, len(q.queue))
+	case adminQueue.queue <- job:
+		fmt.Printf("📥 Queued transfer: request_id=%s, admin=%s, queue_size=%d\n",
+			requestID, req.AdminDID, len(adminQueue.queue))
 		return nil
 	default:
-		// Queue is full
-		return fmt.Errorf("queue is full (capacity: 1000), please retry later")
+		// Queue is full for this admin
+		return fmt.Errorf("queue is full for admin %s (capacity: 1000), please retry later", req.AdminDID)
 	}
 }
 
-// GetQueueSize returns the current queue size
-func (q *TransferQueue) GetQueueSize() int {
-	return len(q.queue)
+// GetQueueSize returns the total queue size across all admins
+func (qm *TransferQueueManager) GetQueueSize() int {
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+
+	totalSize := 0
+	for _, adminQueue := range qm.adminQueues {
+		totalSize += len(adminQueue.queue)
+	}
+	return totalSize
 }
 
-// worker processes jobs sequentially (SINGLE GOROUTINE)
-func (q *TransferQueue) worker() {
-	fmt.Println("🚀 Transfer queue worker started (sequential processing)")
+// adminWorker processes jobs for a specific admin (ONE GOROUTINE PER ADMIN)
+func (qm *TransferQueueManager) adminWorker(adminQueue *AdminQueue) {
+	fmt.Printf("🚀 Worker started for admin: %s (parallel processing enabled)\n", adminQueue.adminDID)
 
-	for job := range q.queue {
+	for job := range adminQueue.queue {
 		startTime := time.Now()
 		waitTime := time.Since(job.QueuedAt)
 
 		fmt.Printf("\n═══════════════════════════════════════════════════════════\n")
-		fmt.Printf("⚙️  Processing: request_id=%s\n", job.RequestID)
+		fmt.Printf("⚙️  Processing [Admin: %s]: request_id=%s\n", adminQueue.adminDID, job.RequestID)
 		fmt.Printf("⏱️  Waited in queue: %v\n", waitTime)
-		fmt.Printf("📊 Queue size: %d\n", len(q.queue))
+		fmt.Printf("📊 Queue size for this admin: %d\n", len(adminQueue.queue))
 		fmt.Printf("═══════════════════════════════════════════════════════════\n")
 
 		// Update status to "processing"
@@ -89,17 +134,17 @@ func (q *TransferQueue) worker() {
 		}
 
 		// Process the transfer (this is where the actual work happens)
-		q.processTransfer(job)
+		qm.processTransfer(job)
 
 		processingTime := time.Since(startTime)
-		fmt.Printf("\n✅ Completed: request_id=%s\n", job.RequestID)
+		fmt.Printf("\n✅ Completed [Admin: %s]: request_id=%s\n", adminQueue.adminDID, job.RequestID)
 		fmt.Printf("⏱️  Processing time: %v\n", processingTime)
-		fmt.Printf("📊 Queue size: %d\n\n", len(q.queue))
+		fmt.Printf("📊 Queue size: %d\n\n", len(adminQueue.queue))
 	}
 }
 
 // processTransfer executes the actual blockchain operations
-func (q *TransferQueue) processTransfer(job *TransferJob) {
+func (qm *TransferQueueManager) processTransfer(job *TransferJob) {
 	req := job.Request
 	requestID := job.RequestID
 
@@ -108,13 +153,13 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	// ═══════════════════════════════════════════════════════════
 	cfg, err := config.GetConfig()
 	if err != nil {
-		q.markFailed(requestID, "Failed to load config", err)
+		qm.markFailed(requestID, "Failed to load config", err)
 		return
 	}
 
 	nodePort, exists := config.GetPortByDid(cfg, req.AdminDID)
 	if !exists {
-		q.markFailed(requestID, "Node port not found for admin DID", nil)
+		qm.markFailed(requestID, "Node port not found for admin DID", nil)
 		return
 	}
 
@@ -124,10 +169,18 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	contractMsg := fmt.Sprintf(`{"transfer_ytoken":{"name": "rubix1", "ft_info": {"comment":"Transfer of reward via contract","ft_count":%f,"ft_name":"ytoken","sender": "%s","creatorDID": "%s", "receiver": "%s"}}}`,
 		float64(rewardPoints), req.AdminDID, req.AdminDID, req.UserDID)
 
-	transferContractHash := config.GetEnvConfig().TransferContract
-	if transferContractHash == "" {
-		q.markFailed(requestID, "Transfer contract hash not configured", nil)
-		return
+	// Try to get admin-specific contract first, fallback to global config
+	transferContractHash, err := config.GetContractForAdmin(req.AdminDID, "transfer")
+	if err != nil {
+		// Fallback to global contract from environment config
+		fmt.Printf("⚠️  Using fallback contract (admin-specific not found): %v\n", err)
+		transferContractHash = config.GetEnvConfig().TransferContract
+		if transferContractHash == "" {
+			qm.markFailed(requestID, "Transfer contract hash not configured", nil)
+			return
+		}
+	} else {
+		fmt.Printf("✅ Using admin-specific contract: %s for admin: %s\n", transferContractHash, req.AdminDID)
 	}
 
 	fmt.Printf("🔗 Node URL: %s\n", url)
@@ -139,7 +192,7 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	fmt.Println("📤 Step 1: Executing smart contract...")
 	blockchainRequestID, err := rubix_interaction.ExecuteSmartContract(url, transferContractHash, req.AdminDID, contractMsg)
 	if err != nil {
-		q.markFailed(requestID, "Failed to execute smart contract", err)
+		qm.markFailed(requestID, "Failed to execute smart contract", err)
 		return
 	}
 	fmt.Printf("✅ Smart contract executed: blockchain_request_id=%s\n", blockchainRequestID)
@@ -150,7 +203,7 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	fmt.Println("✍️  Step 2: Signing transaction...")
 	signatureResponse, err := rubix_interaction.SignatureResponse(url, blockchainRequestID)
 	if err != nil {
-		q.markFailed(requestID, "Failed to sign transaction", err)
+		qm.markFailed(requestID, "Failed to sign transaction", err)
 		return
 	}
 
@@ -197,14 +250,14 @@ func (q *TransferQueue) processTransfer(job *TransferJob) {
 	// Step 6: Start background handler for callback/timeout (non-blocking)
 	// ═══════════════════════════════════════════════════════════
 	fmt.Println("⏳ Step 6: Starting background callback handler...")
-	go q.handleCallbackAsync(requestID, blockId, responseChan)
+	go qm.handleCallbackAsync(requestID, blockId, responseChan)
 
 	// ✅ DONE - Worker can now pick next job immediately!
 	fmt.Println("✅ Contract executed, moving to next job")
 }
 
 // handleCallbackAsync waits for callback or timeout in background (non-blocking)
-func (q *TransferQueue) handleCallbackAsync(requestID string, blockId string, responseChan chan CallbackResponse) {
+func (qm *TransferQueueManager) handleCallbackAsync(requestID string, blockId string, responseChan chan CallbackResponse) {
 	manager := GetTransferManager()
 
 	select {
@@ -267,7 +320,7 @@ func (q *TransferQueue) handleCallbackAsync(requestID string, blockId string, re
 }
 
 // markFailed updates the database to mark a transfer as failed
-func (q *TransferQueue) markFailed(requestID string, message string, err error) {
+func (qm *TransferQueueManager) markFailed(requestID string, message string, err error) {
 	errorDetails := ""
 	if err != nil {
 		errorDetails = err.Error()
@@ -287,4 +340,30 @@ func (q *TransferQueue) markFailed(requestID string, message string, err error) 
 	if updateErr != nil {
 		fmt.Printf("❌ Failed to update database: %v\n", updateErr)
 	}
+}
+
+// GetQueueMetrics returns metrics for all admin queues
+func (qm *TransferQueueManager) GetQueueMetrics() map[string]interface{} {
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+
+	metrics := make(map[string]interface{})
+	adminMetrics := make([]map[string]interface{}, 0)
+
+	totalQueued := 0
+	for adminDID, queue := range qm.adminQueues {
+		queueSize := len(queue.queue)
+		totalQueued += queueSize
+
+		adminMetrics = append(adminMetrics, map[string]interface{}{
+			"admin_did":  adminDID,
+			"queue_size": queueSize,
+		})
+	}
+
+	metrics["total_admins"] = len(qm.adminQueues)
+	metrics["total_queued"] = totalQueued
+	metrics["admin_queues"] = adminMetrics
+
+	return metrics
 }

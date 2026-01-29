@@ -127,8 +127,8 @@ func BootupServer() {
 
 	// router.GET("/request-status", getRequestStatusHandler)
 
-	// Initialize the queue worker at startup
-	GetTransferQueue()
+	// Initialize the queue manager at startup
+	GetQueueManager()
 
 	// Start the server on port 9000
 	fmt.Println("🚀 Starting server on port 9000...")
@@ -248,15 +248,23 @@ func APITransferReward(c *gin.Context) {
 	fmt.Printf("🆔 Generated request_id: %s\n", requestID)
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 3: Validate configuration
+	// Step 3: Validate configuration (try admin-specific, fallback to global)
 	// ═══════════════════════════════════════════════════════════
-	transferContractHash := config.GetEnvConfig().TransferContract
-	if transferContractHash == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Transfer contract hash not configured",
-		})
-		fmt.Println("❌ transferContractHash is not set in the config")
-		return
+	transferContractHash, err := config.GetContractForAdmin(req.AdminDID, "transfer")
+	if err != nil {
+		// Fallback to global contract from environment config
+		fmt.Printf("⚠️  Using fallback contract for queued job: %v\n", err)
+		transferContractHash = config.GetEnvConfig().TransferContract
+		if transferContractHash == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Transfer contract hash not configured",
+				"message": "No admin-specific or global transfer contract configured",
+			})
+			fmt.Println("❌ transferContractHash is not set in the config")
+			return
+		}
+	} else {
+		fmt.Printf("✅ Using admin-specific contract for validation: %s\n", transferContractHash)
 	}
 
 	// ═══════════════════════════════════════════════════════════
@@ -293,10 +301,10 @@ func APITransferReward(c *gin.Context) {
 	fmt.Printf("✅ Database record created: status=queued\n")
 
 	// ═══════════════════════════════════════════════════════════
-	// Step 5: Add to queue
+	// Step 5: Add to queue (routes to admin-specific queue)
 	// ═══════════════════════════════════════════════════════════
-	queue := GetTransferQueue()
-	err = queue.Enqueue(requestID, req)
+	queueManager := GetQueueManager()
+	err = queueManager.Enqueue(requestID, req)
 
 	if err != nil {
 		// Queue is full - update database and return error
@@ -317,7 +325,7 @@ func APITransferReward(c *gin.Context) {
 	// ═══════════════════════════════════════════════════════════
 	// Step 6: Return immediately with request_id
 	// ═══════════════════════════════════════════════════════════
-	queueSize := queue.GetQueueSize()
+	queueSize := queueManager.GetQueueSize()
 
 	// requestIdtobeSent := RequestIDResult{
 	// 	RequestID: requestID,
@@ -375,17 +383,12 @@ func APIGetTransferStatus(c *gin.Context) {
 
 // APIGetQueueMetrics returns queue statistics
 func APIGetQueueMetrics(c *gin.Context) {
-	queue := GetTransferQueue()
-	queueSize := queue.GetQueueSize()
+	queueManager := GetQueueManager()
+	metrics := queueManager.GetQueueMetrics()
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": true,
-		"data": gin.H{
-			"queue_size":         queueSize,
-			"estimated_wait_sec": queueSize * 8,
-			"capacity":           1000,
-			"available_slots":    1000 - queueSize,
-		},
+		"data":   metrics,
 	})
 }
 
@@ -413,10 +416,20 @@ func APIAddActivity(c *gin.Context) {
 	fmt.Println("The url is :", url)
 	contractMsg := fmt.Sprintf(`{"add_activity": {"activity_id":"%s","reward_points":%d}}`, req.ActivityID, req.RewardPoints)
 	fmt.Println("The contract message is:", contractMsg)
-	smartContractHash := config.GetEnvConfig().AddActivityContract //Loading the smart contract hash from config
-	if smartContractHash == "" {
-		fmt.Println("Smart contract hash is not set in the config")
-		return
+
+	// Try to get admin-specific contract first, fallback to global config
+	smartContractHash, err := config.GetContractForAdmin(req.AdminDID, "add_activity")
+	if err != nil {
+		// Fallback to global contract from environment config
+		fmt.Printf("⚠️  Using fallback add_activity contract: %v\n", err)
+		smartContractHash = config.GetEnvConfig().AddActivityContract
+		if smartContractHash == "" {
+			fmt.Println("❌ Smart contract hash is not set in the config")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Add activity contract not configured"})
+			return
+		}
+	} else {
+		fmt.Printf("✅ Using admin-specific add_activity contract: %s\n", smartContractHash)
 	}
 	smartContractResponse, err := rubix_interaction.ExecuteSmartContract(url, smartContractHash, req.AdminDID, contractMsg)
 	if err != nil {
@@ -430,12 +443,9 @@ func APIAddActivity(c *gin.Context) {
 		return
 	}
 	fmt.Println("Signature response sent successfully")
-	addActivityContractHash := config.GetEnvConfig().AddActivityContract //Loading the smart contract hash from config
-	if addActivityContractHash == "" {
-		fmt.Println("addActivityContractHash is not set in the config")
-		return
-	}
-	block := rubix_interaction.GetSmartContractData(addActivityContractHash, url) //config.NodeAddress)
+
+	// Use the same contract hash from above (already validated)
+	block := rubix_interaction.GetSmartContractData(smartContractHash, url) //config.NodeAddress)
 	if block == nil {
 		fmt.Println("Unable to fetch latest smart contract data")
 		return

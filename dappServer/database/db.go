@@ -42,8 +42,8 @@ func InitDB(connStr string) error {
 	}
 
 	// Set connection pool settings for better concurrency
-	db.SetMaxOpenConns(25)                 // Maximum number of open connections
-	db.SetMaxIdleConns(5)                  // Maximum number of idle connections
+	db.SetMaxOpenConns(100)                // Maximum number of open connections (increased for multi-admin parallel processing)
+	db.SetMaxIdleConns(25)                 // Maximum number of idle connections (keep more ready)
 	db.SetConnMaxLifetime(5 * time.Minute) // Maximum lifetime of a connection
 
 	// Test connection
@@ -60,7 +60,7 @@ func InitDB(connStr string) error {
 	}
 
 	fmt.Println("✅ PostgreSQL database initialized successfully")
-	fmt.Printf("📊 Connection pool: max_open=%d, max_idle=%d\n", 25, 5)
+	fmt.Printf("📊 Connection pool: max_open=%d, max_idle=%d\n", 100, 25)
 	return nil
 }
 
