@@ -243,9 +243,9 @@ func (q *TransferQueue) handleCallbackAsync(requestID string, blockId string, re
 			}
 		}
 
-	case <-time.After(3 * time.Minute):
+	case <-time.After(15 * time.Minute):
 		// Timeout - callback didn't arrive in time
-		fmt.Printf("⏰ Timeout: request_id=%s - Callback did not arrive within 3 minutes\n", requestID)
+		fmt.Printf("⏰ Timeout: request_id=%s - Callback did not arrive within 15 minutes\n", requestID)
 
 		completedAt := time.Now()
 		err := manager.MarkTimeout(requestID, blockId)
