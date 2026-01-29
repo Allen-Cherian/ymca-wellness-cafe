@@ -625,7 +625,7 @@ func ftDappHandler(c *gin.Context) {
 
 	// Add delay to give API time to complete setup (transactionID, DB creation, registration)
 	fmt.Println("⏳ Waiting 5 seconds for API setup to complete...")
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	fmt.Println("✅ Delay complete, processing callback...")
 	// cfg, err := config.GetConfig()
 	// if err != nil {
