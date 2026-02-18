@@ -32,6 +32,14 @@ type TransferStatus struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
+// UserDIDRecord represents a user DID created via a specific admin node
+type UserDIDRecord struct {
+	UserDID   string    `json:"user_did"`
+	AdminDID  string    `json:"admin_did"`
+	PublicKey string    `json:"public_key"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // InitDB initializes the PostgreSQL database
 func InitDB(connStr string) error {
 	var err error
@@ -148,6 +156,28 @@ func createTables() error {
 		return fmt.Errorf("table verification query failed: %w", verifyErr)
 	}
 	fmt.Printf("✅ [DEBUG] Verified: Table '%s' exists in database\n", tableName)
+
+	// Create user_did_registry table
+	userDIDTableSQL := `
+	CREATE TABLE IF NOT EXISTS user_did_registry (
+		user_did   VARCHAR(255) PRIMARY KEY,
+		admin_did  VARCHAR(255) NOT NULL,
+		public_key TEXT        NOT NULL,
+		created_at TIMESTAMP   NOT NULL
+	)`
+
+	fmt.Println("🔍 [DEBUG] Creating user_did_registry table...")
+	_, err = db.Exec(userDIDTableSQL)
+	if err != nil {
+		return fmt.Errorf("failed to create user_did_registry table: %w", err)
+	}
+	fmt.Println("🔍 [DEBUG] user_did_registry table created successfully")
+
+	// Index on admin_did for lookups like "all users under an admin"
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_did_registry_admin_did ON user_did_registry(admin_did)`)
+	if err != nil {
+		return fmt.Errorf("failed to create index on user_did_registry: %w", err)
+	}
 
 	fmt.Println("✅ Database tables and indexes created successfully")
 	return nil
@@ -374,4 +404,65 @@ func CloseDB() error {
 		return db.Close()
 	}
 	return nil
+}
+
+// CreateUserDID saves a newly created user DID and its relationship to the admin node
+func CreateUserDID(record *UserDIDRecord) error {
+	query := `
+		INSERT INTO user_did_registry (user_did, admin_did, public_key, created_at)
+		VALUES ($1, $2, $3, $4)
+	`
+	_, err := db.Exec(query, record.UserDID, record.AdminDID, record.PublicKey, record.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to save user DID record: %w", err)
+	}
+	return nil
+}
+
+// GetUserDID retrieves a user DID record by user_did
+func GetUserDID(userDID string) (*UserDIDRecord, error) {
+	query := `
+		SELECT user_did, admin_did, public_key, created_at
+		FROM user_did_registry
+		WHERE user_did = $1
+	`
+	var record UserDIDRecord
+	err := db.QueryRow(query, userDID).Scan(
+		&record.UserDID,
+		&record.AdminDID,
+		&record.PublicKey,
+		&record.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("user DID not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user DID record: %w", err)
+	}
+	return &record, nil
+}
+
+// GetUserDIDsByAdmin retrieves all user DIDs created under a specific admin node
+func GetUserDIDsByAdmin(adminDID string) ([]*UserDIDRecord, error) {
+	query := `
+		SELECT user_did, admin_did, public_key, created_at
+		FROM user_did_registry
+		WHERE admin_did = $1
+		ORDER BY created_at DESC
+	`
+	rows, err := db.Query(query, adminDID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user DIDs by admin: %w", err)
+	}
+	defer rows.Close()
+
+	var records []*UserDIDRecord
+	for rows.Next() {
+		var record UserDIDRecord
+		if err := rows.Scan(&record.UserDID, &record.AdminDID, &record.PublicKey, &record.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan user DID record: %w", err)
+		}
+		records = append(records, &record)
+	}
+	return records, nil
 }

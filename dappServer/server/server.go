@@ -73,6 +73,11 @@ type TransferRewardRequest struct {
 	AdminDID   string   `json:"admin_did"`
 }
 
+type CreateDIDWithPubKeyRequest struct {
+	AdminDID  string `json:"admin_did"`
+	PublicKey string `json:"public_key"`
+}
+
 type Activity struct {
 	ActivityID   string `json:"activity_id"`
 	BlockHash    string `json:"block_hash"`
@@ -124,6 +129,7 @@ func BootupServer() {
 	router.GET("/api/queue/metrics", APIGetQueueMetrics)
 	router.POST("/api/admin/add", APIAddAdmin)
 	router.POST("/api/callback/add-admin", APIAddAdminCallBackTrigger)
+	router.POST("/api/create-did-with-pubkey", APICreateDIDWithPubKey)
 
 	// router.GET("/request-status", getRequestStatusHandler)
 
@@ -389,6 +395,152 @@ func APIGetQueueMetrics(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": true,
 		"data":   metrics,
+	})
+}
+
+func APICreateDIDWithPubKey(c *gin.Context) {
+	fmt.Println("═══════════════════════════════════════════════════════════")
+	fmt.Println("APICreateDIDWithPubKey triggered")
+	fmt.Println("═══════════════════════════════════════════════════════════")
+
+	var req CreateDIDWithPubKeyRequest
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid request body",
+			"message": err.Error(),
+		})
+		fmt.Printf("Error reading request body: %s\n", err)
+		return
+	}
+
+	fmt.Printf("Request: admin_did=%s, public_key=%s\n", req.AdminDID, req.PublicKey)
+
+	// Validate admin_did
+	if req.AdminDID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "admin_did is required and cannot be empty",
+		})
+		fmt.Println("Validation failed: admin_did is empty")
+		return
+	}
+
+	if !strings.HasPrefix(req.AdminDID, "bafyb") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "admin_did has invalid format (should start with 'bafyb')",
+		})
+		fmt.Printf("Validation failed: admin_did has invalid format: %s\n", req.AdminDID)
+		return
+	}
+
+	// Validate public_key
+	if req.PublicKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "public_key is required and cannot be empty",
+		})
+		fmt.Println("Validation failed: public_key is empty")
+		return
+	}
+
+	// Lookup node port from admin_did
+	cfg, err := config.GetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Configuration error",
+			"message": "Failed to load server configuration",
+		})
+		fmt.Printf("Failed to load config: %v\n", err)
+		return
+	}
+
+	nodePort, exists := config.GetPortByDid(cfg, req.AdminDID)
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": "admin_did not found in configured nodes",
+			"details": "The specified admin_did is not registered in the system",
+		})
+		fmt.Printf("Validation failed: admin_did not found in config: %s\n", req.AdminDID)
+		return
+	}
+
+	fmt.Println("Input validation passed")
+
+	// Build the Rubix node URL and call /api/request-did-for-pubkey
+	nodeURL := fmt.Sprintf("http://localhost:%s/api/request-did-for-pubkey", nodePort)
+	fmt.Printf("Calling Rubix node: %s\n", nodeURL)
+
+	reqBody, err := json.Marshal(map[string]string{
+		"public_key": req.PublicKey,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to build request",
+			"message": err.Error(),
+		})
+		fmt.Printf("Failed to marshal request body: %v\n", err)
+		return
+	}
+
+	resp, err := http.Post(nodeURL, "application/json", strings.NewReader(string(reqBody)))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to reach Rubix node",
+			"message": err.Error(),
+		})
+		fmt.Printf("Failed to call Rubix node: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var rubixResp struct {
+		DID string `json:"did"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rubixResp); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to parse Rubix node response",
+			"message": err.Error(),
+		})
+		fmt.Printf("Failed to decode Rubix response: %v\n", err)
+		return
+	}
+
+	if rubixResp.DID == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "DID creation failed",
+			"message": "Rubix node returned an empty DID",
+		})
+		fmt.Println("Rubix node returned empty DID")
+		return
+	}
+
+	fmt.Printf("DID created successfully: %s\n", rubixResp.DID)
+
+	// Persist the user DID → admin DID mapping
+	if err := database.CreateUserDID(&database.UserDIDRecord{
+		UserDID:   rubixResp.DID,
+		AdminDID:  req.AdminDID,
+		PublicKey: req.PublicKey,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to save user DID record",
+			"message": err.Error(),
+		})
+		fmt.Printf("Failed to save user DID record: %v\n", err)
+		return
+	}
+
+	fmt.Printf("User DID record saved: user_did=%s admin_did=%s\n", rubixResp.DID, req.AdminDID)
+	fmt.Println("═══════════════════════════════════════════════════════════")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": true,
+		"data": gin.H{
+			"did": rubixResp.DID,
+		},
 	})
 }
 
