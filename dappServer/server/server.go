@@ -287,8 +287,8 @@ func APITransferReward(c *gin.Context) {
 		UserDID:        req.UserDID,
 		AdminDID:       req.AdminDID,
 		RewardPoints:   rewardPoints,
-		Status:         "queued",
-		Message:        "Transfer request queued for processing",
+		Status:         "success",
+		Message:        "Transfer request successful",
 		ContractHash:   transferContractHash,
 		QueuedAt:       now,
 		CreatedAt:      now,
@@ -344,7 +344,7 @@ func APITransferReward(c *gin.Context) {
 	// }
 	response := gin.H{
 		"status":  true,
-		"message": "Transfer request queued for processing",
+		"message": "Transfer request successful",
 		"data":    RequestIDResult{RequestID: requestID},
 	}
 
