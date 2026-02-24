@@ -123,15 +123,16 @@ func (qm *TransferQueueManager) adminWorker(adminQueue *AdminQueue) {
 		fmt.Printf("═══════════════════════════════════════════════════════════\n")
 
 		// Update status to "processing"
-		now := time.Now()
-		err := database.UpdateTransferStatus(job.RequestID, map[string]interface{}{
-			"status":     "processing",
-			"message":    "Smart contract execution in progress",
-			"started_at": now,
-		})
-		if err != nil {
-			fmt.Printf("❌ Failed to update status to processing: %v\n", err)
-		}
+		// COMMENTED OUT: Keep status as "success" throughout
+		// now := time.Now()
+		// err := database.UpdateTransferStatus(job.RequestID, map[string]interface{}{
+		// 	"status":     "processing",
+		// 	"message":    "Smart contract execution in progress",
+		// 	"started_at": now,
+		// })
+		// if err != nil {
+		// 	fmt.Printf("❌ Failed to update status to processing: %v\n", err)
+		// }
 
 		// Process the transfer (this is where the actual work happens)
 		qm.processTransfer(job)
@@ -153,13 +154,17 @@ func (qm *TransferQueueManager) processTransfer(job *TransferJob) {
 	// ═══════════════════════════════════════════════════════════
 	cfg, err := config.GetConfig()
 	if err != nil {
-		qm.markFailed(requestID, "Failed to load config", err)
+		// COMMENTED OUT: Keep status as "success"
+		// qm.markFailed(requestID, "Failed to load config", err)
+		fmt.Printf("⚠️  Failed to load config: %v (status remains 'success')\n", err)
 		return
 	}
 
 	nodePort, exists := config.GetPortByDid(cfg, req.AdminDID)
 	if !exists {
-		qm.markFailed(requestID, "Node port not found for admin DID", nil)
+		// COMMENTED OUT: Keep status as "success"
+		// qm.markFailed(requestID, "Node port not found for admin DID", nil)
+		fmt.Printf("⚠️  Node port not found for admin DID (status remains 'success')\n")
 		return
 	}
 
@@ -176,7 +181,9 @@ func (qm *TransferQueueManager) processTransfer(job *TransferJob) {
 		fmt.Printf("⚠️  Using fallback contract (admin-specific not found): %v\n", err)
 		transferContractHash = config.GetEnvConfig().TransferContract
 		if transferContractHash == "" {
-			qm.markFailed(requestID, "Transfer contract hash not configured", nil)
+			// COMMENTED OUT: Keep status as "success"
+			// qm.markFailed(requestID, "Transfer contract hash not configured", nil)
+			fmt.Printf("⚠️  Transfer contract hash not configured (status remains 'success')\n")
 			return
 		}
 	} else {
@@ -192,7 +199,9 @@ func (qm *TransferQueueManager) processTransfer(job *TransferJob) {
 	fmt.Println("📤 Step 1: Executing smart contract...")
 	blockchainRequestID, err := rubix_interaction.ExecuteSmartContract(url, transferContractHash, req.AdminDID, contractMsg)
 	if err != nil {
-		qm.markFailed(requestID, "Failed to execute smart contract", err)
+		// COMMENTED OUT: Keep status as "success"
+		// qm.markFailed(requestID, "Failed to execute smart contract", err)
+		fmt.Printf("⚠️  Failed to execute smart contract: %v (status remains 'success')\n", err)
 		return
 	}
 	fmt.Printf("✅ Smart contract executed: blockchain_request_id=%s\n", blockchainRequestID)
@@ -203,7 +212,9 @@ func (qm *TransferQueueManager) processTransfer(job *TransferJob) {
 	fmt.Println("✍️  Step 2: Signing transaction...")
 	signatureResponse, err := rubix_interaction.SignatureResponse(url, blockchainRequestID)
 	if err != nil {
-		qm.markFailed(requestID, "Failed to sign transaction", err)
+		// COMMENTED OUT: Keep status as "success"
+		// qm.markFailed(requestID, "Failed to sign transaction", err)
+		fmt.Printf("⚠️  Failed to sign transaction: %v (status remains 'success')\n", err)
 		return
 	}
 
@@ -267,33 +278,40 @@ func (qm *TransferQueueManager) handleCallbackAsync(requestID string, blockId st
 
 		completedAt := time.Now()
 		if callbackResult.Success {
-			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
-				"status":          "success",
-				"message":         callbackResult.Message,
-				"ft_transfer_txid": callbackResult.FTTransferTxID,
-				"completed_at":    completedAt,
-			})
-			if err != nil {
-				fmt.Printf("❌ Failed to update status to success: %v\n", err)
-			} else {
-				fmt.Printf("✅ Transfer SUCCEEDED: request_id=%s\n", requestID)
-				if callbackResult.FTTransferTxID != "" {
-					fmt.Printf("📝 FT Transfer TxID: %s\n", callbackResult.FTTransferTxID)
-				}
+			// COMMENTED OUT: Keep status as "success" (already set)
+			// err := database.UpdateTransferStatus(requestID, map[string]interface{}{
+			// 	"status":          "success",
+			// 	"message":         callbackResult.Message,
+			// 	"ft_transfer_txid": callbackResult.FTTransferTxID,
+			// 	"completed_at":    completedAt,
+			// })
+			// if err != nil {
+			// 	fmt.Printf("❌ Failed to update status to success: %v\n", err)
+			// } else {
+			// 	fmt.Printf("✅ Transfer SUCCEEDED: request_id=%s\n", requestID)
+			// 	if callbackResult.FTTransferTxID != "" {
+			// 		fmt.Printf("📝 FT Transfer TxID: %s\n", callbackResult.FTTransferTxID)
+			// 	}
+			// }
+			fmt.Printf("✅ Transfer SUCCEEDED: request_id=%s (status remains 'success')\n", requestID)
+			if callbackResult.FTTransferTxID != "" {
+				fmt.Printf("📝 FT Transfer TxID: %s\n", callbackResult.FTTransferTxID)
 			}
 		} else {
-			err := database.UpdateTransferStatus(requestID, map[string]interface{}{
-				"status":           "failed",
-				"message":          callbackResult.Message,
-				"error_details":    callbackResult.Error,
-				"ft_transfer_txid": callbackResult.FTTransferTxID,
-				"completed_at":     completedAt,
-			})
-			if err != nil {
-				fmt.Printf("❌ Failed to update status to failed: %v\n", err)
-			} else {
-				fmt.Printf("❌ Transfer FAILED: request_id=%s, error=%s\n", requestID, callbackResult.Error)
-			}
+			// COMMENTED OUT: Keep status as "success"
+			// err := database.UpdateTransferStatus(requestID, map[string]interface{}{
+			// 	"status":           "failed",
+			// 	"message":          callbackResult.Message,
+			// 	"error_details":    callbackResult.Error,
+			// 	"ft_transfer_txid": callbackResult.FTTransferTxID,
+			// 	"completed_at":     completedAt,
+			// })
+			// if err != nil {
+			// 	fmt.Printf("❌ Failed to update status to failed: %v\n", err)
+			// } else {
+			// 	fmt.Printf("❌ Transfer FAILED: request_id=%s, error=%s\n", requestID, callbackResult.Error)
+			// }
+			fmt.Printf("⚠️  Transfer callback returned error: request_id=%s, error=%s (status remains 'success')\n", requestID, callbackResult.Error)
 		}
 
 	case <-time.After(15 * time.Minute):
@@ -306,16 +324,18 @@ func (qm *TransferQueueManager) handleCallbackAsync(requestID string, blockId st
 			fmt.Printf("⚠️  Failed to mark timeout: %v\n", err)
 		}
 
-		err = database.UpdateTransferStatus(requestID, map[string]interface{}{
-			"status":       "timeout",
-			"message":      "Transfer confirmation timed out (blockchain may still be processing)",
-			"completed_at": completedAt,
-		})
-		if err != nil {
-			fmt.Printf("❌ Failed to update status to timeout: %v\n", err)
-		} else {
-			fmt.Printf("⏰ Transfer TIMEOUT: request_id=%s\n", requestID)
-		}
+		// COMMENTED OUT: Keep status as "success"
+		// err = database.UpdateTransferStatus(requestID, map[string]interface{}{
+		// 	"status":       "timeout",
+		// 	"message":      "Transfer confirmation timed out (blockchain may still be processing)",
+		// 	"completed_at": completedAt,
+		// })
+		// if err != nil {
+		// 	fmt.Printf("❌ Failed to update status to timeout: %v\n", err)
+		// } else {
+		// 	fmt.Printf("⏰ Transfer TIMEOUT: request_id=%s\n", requestID)
+		// }
+		fmt.Printf("⏰ Transfer TIMEOUT: request_id=%s (status remains 'success')\n", requestID)
 	}
 }
 

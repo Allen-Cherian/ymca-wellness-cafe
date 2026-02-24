@@ -111,21 +111,24 @@ func (m *TransferManager) SendCallbackResponse(blockId string, response Callback
 	if req, exists := m.pendingByBlockId[blockId]; exists {
 		fmt.Printf("✅ Found pending request for blockId: %s, transactionID: %s\n", blockId, req.TransactionID)
 
+		// COMMENTED OUT: Keep status as "success"
 		// Update persistent status in DB
-		updates := map[string]interface{}{
-			"message": response.Message,
-		}
-		if response.Success {
-			updates["status"] = "success"
-		} else {
-			updates["status"] = "failed"
-			updates["error_details"] = response.Error
-		}
+		// updates := map[string]interface{}{
+		// 	"message": response.Message,
+		// }
+		// if response.Success {
+		// 	updates["status"] = "success"
+		// } else {
+		// 	updates["status"] = "failed"
+		// 	updates["error_details"] = response.Error
+		// }
 
-		err := database.UpdateTransferStatus(req.TransactionID, updates)
-		if err != nil {
-			fmt.Printf("Failed to update transfer status in DB: %v\n", err)
-		}
+		// err := database.UpdateTransferStatus(req.TransactionID, updates)
+		// if err != nil {
+		// 	fmt.Printf("Failed to update transfer status in DB: %v\n", err)
+		// }
+
+		fmt.Printf("📝 Callback response received (status remains 'success'): success=%v, message=%s\n", response.Success, response.Message)
 
 		// Send to channel if still waiting
 		select {
@@ -149,47 +152,52 @@ func (m *TransferManager) SendCallbackResponse(blockId string, response Callback
 		fmt.Printf("%s, ", key)
 	}
 	fmt.Printf("\n")
-	fmt.Printf("⤵️  Falling back to DB update by blockId\n")
-	m.updateStatusByBlockId(blockId, response)
+	// COMMENTED OUT: Keep status as "success"
+	// fmt.Printf("⤵️  Falling back to DB update by blockId\n")
+	// m.updateStatusByBlockId(blockId, response)
+	fmt.Printf("⤵️  Skipping DB update - status remains 'success'\n")
 	return false
 }
 
 // updateStatusByBlockId updates status when we only have blockId (fallback for late callbacks)
+// COMMENTED OUT: Keep status as "success"
 func (m *TransferManager) updateStatusByBlockId(blockId string, response CallbackResponse) {
-	status, err := database.GetTransferStatusByBlockId(blockId)
-	if err != nil {
-		fmt.Printf("Failed to find transfer by blockId %s: %v\n", blockId, err)
-		return
-	}
+	// status, err := database.GetTransferStatusByBlockId(blockId)
+	// if err != nil {
+	// 	fmt.Printf("Failed to find transfer by blockId %s: %v\n", blockId, err)
+	// 	return
+	// }
 
-	updates := map[string]interface{}{
-		"message": response.Message,
-	}
-	if response.Success {
-		updates["status"] = "success"
-	} else {
-		updates["status"] = "failed"
-		updates["error_details"] = response.Error
-	}
+	// updates := map[string]interface{}{
+	// 	"message": response.Message,
+	// }
+	// if response.Success {
+	// 	updates["status"] = "success"
+	// } else {
+	// 	updates["status"] = "failed"
+	// 	updates["error_details"] = response.Error
+	// }
 
-	err = database.UpdateTransferStatus(status.RequestID, updates)
-	if err != nil {
-		fmt.Printf("Failed to update transfer status: %v\n", err)
-	} else {
-		fmt.Printf("Updated transfer status for transactionID: %s\n", status.RequestID)
-	}
+	// err = database.UpdateTransferStatus(status.RequestID, updates)
+	// if err != nil {
+	// 	fmt.Printf("Failed to update transfer status: %v\n", err)
+	// } else {
+	// 	fmt.Printf("Updated transfer status for transactionID: %s\n", status.RequestID)
+	// }
+	fmt.Printf("📝 updateStatusByBlockId called for blockId: %s (status remains 'success')\n", blockId)
 }
 
 // MarkTimeout marks a transfer as timed out and cleans up pending request
 func (m *TransferManager) MarkTimeout(transactionID string, blockId string) error {
+	// COMMENTED OUT: Keep status as "success"
 	// Update in database
-	err := database.UpdateTransferStatus(transactionID, map[string]interface{}{
-		"status":  "timeout",
-		"message": "Transfer confirmation timed out (blockchain may still be processing)",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to mark timeout in DB: %w", err)
-	}
+	// err := database.UpdateTransferStatus(transactionID, map[string]interface{}{
+	// 	"status":  "timeout",
+	// 	"message": "Transfer confirmation timed out (blockchain may still be processing)",
+	// })
+	// if err != nil {
+	// 	return fmt.Errorf("failed to mark timeout in DB: %w", err)
+	// }
 
 	// Clean up pending request
 	m.pendingMu.Lock()
@@ -198,7 +206,7 @@ func (m *TransferManager) MarkTimeout(transactionID string, blockId string) erro
 	if req, exists := m.pendingByBlockId[blockId]; exists {
 		close(req.ResponseChan)
 		delete(m.pendingByBlockId, blockId)
-		fmt.Printf("Cleaned up timed out request: transactionID=%s, blockId=%s\n", transactionID, blockId)
+		fmt.Printf("Cleaned up timed out request: transactionID=%s, blockId=%s (status remains 'success')\n", transactionID, blockId)
 	}
 
 	return nil
