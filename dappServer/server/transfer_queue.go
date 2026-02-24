@@ -276,7 +276,7 @@ func (qm *TransferQueueManager) handleCallbackAsync(requestID string, blockId st
 		// Callback arrived!
 		fmt.Printf("🎉 Callback received: request_id=%s, success=%v\n", requestID, callbackResult.Success)
 
-		completedAt := time.Now()
+		// completedAt := time.Now()
 		if callbackResult.Success {
 			// COMMENTED OUT: Keep status as "success" (already set)
 			// err := database.UpdateTransferStatus(requestID, map[string]interface{}{
@@ -318,7 +318,7 @@ func (qm *TransferQueueManager) handleCallbackAsync(requestID string, blockId st
 		// Timeout - callback didn't arrive in time
 		fmt.Printf("⏰ Timeout: request_id=%s - Callback did not arrive within 15 minutes\n", requestID)
 
-		completedAt := time.Now()
+		// completedAt := time.Now()
 		err := manager.MarkTimeout(requestID, blockId)
 		if err != nil {
 			fmt.Printf("⚠️  Failed to mark timeout: %v\n", err)
