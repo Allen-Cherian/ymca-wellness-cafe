@@ -668,7 +668,7 @@ func APICallBackTrigger(c *gin.Context) {
 
 	// Create your custom host function
 	// TODO: Fix WriteToJsonFile to work with local wasmbridge (utils dependency issue)
-	// registry.Register(rubix_interaction.NewWriteToJsonFile())
+	registry.Register(rubix_interaction.NewWriteToJsonFile())
 	hostFunction := registry.GetHostFunctions()
 	fmt.Println("Host function is :", hostFunction)
 	wasmPath, err := getWasmContractPath(smartContractHash, req.Port)
