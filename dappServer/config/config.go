@@ -184,3 +184,94 @@ func GetPostgresConnectionString() string {
 
 	return connStr
 }
+
+// ═══════════════════════════════════════════════════════════
+// DID Mapping Configuration
+// ═══════════════════════════════════════════════════════════
+
+// DIDMapping holds the mapping from incoming DIDs to replacement DIDs
+type DIDMapping struct {
+	Mapping map[string]string `toml:"mapping"`
+}
+
+var (
+	didMappingInstance *DIDMapping
+	didMappingOnce     sync.Once
+)
+
+// LoadDIDMapping loads the DID replacement mapping from file
+func LoadDIDMapping(filepath string) {
+	didMappingOnce.Do(func() {
+		didMappingInstance = &DIDMapping{}
+		if _, err := toml.DecodeFile(filepath, didMappingInstance); err != nil {
+			log.Printf("⚠️  Warning: DID mapping file not found or invalid: %v", err)
+			log.Printf("    Continuing without DID mapping (all DIDs will be used as-is)")
+			// Initialize empty mapping if file doesn't exist
+			didMappingInstance.Mapping = make(map[string]string)
+		} else {
+			log.Printf("✅ DID mapping loaded successfully with %d mappings", len(didMappingInstance.Mapping))
+		}
+	})
+}
+
+// GetDIDMapping returns the global DID mapping instance
+func GetDIDMapping() *DIDMapping {
+	if didMappingInstance == nil {
+		LoadDIDMapping(".config/did_mapping.toml")
+	}
+	return didMappingInstance
+}
+
+// ResolveAdminDID returns the replacement DID if a mapping exists, otherwise returns the original DID
+// This function is the main entry point for DID replacement logic
+func ResolveAdminDID(incomingDID string) string {
+	mapping := GetDIDMapping()
+	if mapping == nil || len(mapping.Mapping) == 0 {
+		return incomingDID
+	}
+
+	if replacementDID, exists := mapping.Mapping[incomingDID]; exists {
+		log.Printf("🔄 DID Mapping Applied: %s → %s", incomingDID[:20]+"...", replacementDID[:20]+"...")
+		return replacementDID
+	}
+
+	// No mapping found, return original DID
+	return incomingDID
+}
+
+// ValidateDIDMapping ensures all DID mappings are valid:
+// 1. Both incoming and replacement DIDs must exist in config.toml
+// 2. Both DIDs must use the same port (same node)
+func ValidateDIDMapping(cfg *Config, mapping *DIDMapping) error {
+	if mapping == nil || len(mapping.Mapping) == 0 {
+		log.Println("ℹ️  No DID mappings configured - skipping validation")
+		return nil
+	}
+
+	log.Println("🔍 Validating DID mappings...")
+
+	for incomingDID, replacementDID := range mapping.Mapping {
+		// Check if incoming DID exists in config
+		incomingPort, incomingExists := GetPortByDid(cfg, incomingDID)
+		if !incomingExists {
+			return fmt.Errorf("incoming DID not found in config.toml: %s", incomingDID)
+		}
+
+		// Check if replacement DID exists in config
+		replacementPort, replacementExists := GetPortByDid(cfg, replacementDID)
+		if !replacementExists {
+			return fmt.Errorf("replacement DID not found in config.toml: %s", replacementDID)
+		}
+
+		// Ensure both DIDs use the same port
+		if incomingPort != replacementPort {
+			return fmt.Errorf("DID mapping port mismatch: incoming DID %s (port %s) → replacement DID %s (port %s) - both must use the same port",
+				incomingDID[:20]+"...", incomingPort, replacementDID[:20]+"...", replacementPort)
+		}
+
+		log.Printf("   ✓ Valid mapping: %s → %s (port %s)", incomingDID[:20]+"...", replacementDID[:20]+"...", incomingPort)
+	}
+
+	log.Printf("✅ All %d DID mappings validated successfully", len(mapping.Mapping))
+	return nil
+}

@@ -10,6 +10,7 @@ import (
 
 const CONFIG_PATH = ".config/config.toml"
 const CONTRACTS_PATH = ".config/contracts.toml"
+const DID_MAPPING_PATH = ".config/did_mapping.toml"
 
 func main() {
 	// Initialize database with PostgreSQL
@@ -31,6 +32,21 @@ func main() {
 	if err != nil {
 		log.Printf("⚠️  Warning: Failed to load contracts config: %v", err)
 		log.Println("⚠️  System will use fallback contract from environment config")
+	}
+
+	// Load DID mapping configuration
+	fmt.Println("Loading DID mapping configuration...")
+	config.LoadDIDMapping(DID_MAPPING_PATH)
+
+	// Validate DID mapping (ensures both DIDs exist and use same port)
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Fatalf("❌ Failed to get config: %v", err)
+	}
+	didMapping := config.GetDIDMapping()
+	err = config.ValidateDIDMapping(cfg, didMapping)
+	if err != nil {
+		log.Fatalf("❌ DID Mapping validation failed: %v\n   Please check your .config/did_mapping.toml file", err)
 	}
 
 	// Validate admin configuration (optional - will warn if not configured)

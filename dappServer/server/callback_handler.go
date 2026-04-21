@@ -1,3 +1,4 @@
+// Package server provides HTTP callback handlers for the dApp server.
 package server
 
 import (

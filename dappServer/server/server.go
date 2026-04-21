@@ -159,6 +159,16 @@ func APITransferReward(c *gin.Context) {
 	fmt.Printf("📝 Request: user=%s, admin=%s, activities=%v\n", req.UserDID, req.AdminDID, req.ActivityID)
 
 	// ═══════════════════════════════════════════════════════════
+	// Step 0: Apply DID Mapping (if configured)
+	// ═══════════════════════════════════════════════════════════
+	originalAdminDID := req.AdminDID
+	req.AdminDID = config.ResolveAdminDID(req.AdminDID)
+
+	if originalAdminDID != req.AdminDID {
+		fmt.Printf("🔄 Admin DID replaced: %s → %s\n", originalAdminDID, req.AdminDID)
+	}
+
+	// ═══════════════════════════════════════════════════════════
 	// Step 1: Input Validation
 	// ═══════════════════════════════════════════════════════════
 
@@ -415,6 +425,13 @@ func APICreateDIDWithPubKey(c *gin.Context) {
 
 	fmt.Printf("Request: admin_did=%s, public_key=%s\n", req.AdminDID, req.PublicKey)
 
+	// Apply DID Mapping (if configured)
+	originalAdminDID := req.AdminDID
+	req.AdminDID = config.ResolveAdminDID(req.AdminDID)
+	if originalAdminDID != req.AdminDID {
+		fmt.Printf("🔄 Admin DID replaced: %s → %s\n", originalAdminDID, req.AdminDID)
+	}
+
 	// Validate admin_did
 	if req.AdminDID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -554,6 +571,14 @@ func APIAddActivity(c *gin.Context) {
 		return
 	}
 	fmt.Println("The request body is:", req)
+
+	// Apply DID Mapping (if configured)
+	originalAdminDID := req.AdminDID
+	req.AdminDID = config.ResolveAdminDID(req.AdminDID)
+	if originalAdminDID != req.AdminDID {
+		fmt.Printf("🔄 Admin DID replaced: %s → %s\n", originalAdminDID, req.AdminDID)
+	}
+
 	cfg, err := config.GetConfig()
 	if err != nil {
 		fmt.Println("failed to load config: %w", err)

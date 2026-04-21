@@ -25,6 +25,14 @@ func APIAddAdmin(c *gin.Context) {
 		return
 	}
 	fmt.Println("The request body is:", req)
+
+	// Apply DID Mapping (if configured)
+	originalExistingAdminDID := req.ExistingAdminDID
+	req.ExistingAdminDID = config.ResolveAdminDID(req.ExistingAdminDID)
+	if originalExistingAdminDID != req.ExistingAdminDID {
+		fmt.Printf("🔄 Existing Admin DID replaced: %s → %s\n", originalExistingAdminDID, req.ExistingAdminDID)
+	}
+
 	cfg, err := config.GetConfig()
 	if err != nil {
 		fmt.Println("failed to load config: %w", err)
